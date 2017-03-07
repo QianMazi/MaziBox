@@ -1014,8 +1014,7 @@ lcdb.build.EE_CroxSecReg <- function(begT,endT,factorLists){
     loopind_ <- subset(loopind, monthind == monthlist[ii])
     RebDates_ <- loopind_$RebDates
     TS_ <- getTS(RebDates_, indexID = "EI000985")
-    res_list <- suppressWarnings(reg.TS(TS = TS_, dure = lubridate::days(1), factorLists = factorLists,
-                                        regType = "glm", glm_wgt = "sqrtFV"))
+    res_list <- suppressWarnings(reg.TS(TS = TS_,FactorLists=factorLists,dure = lubridate::days(1)))
     finalre <- res_list$res
     finalre <- renameCol(finalre, "res", "err")
     finalre$date <- trday.nearby(finalre$date, by = 1)

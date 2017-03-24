@@ -15,4 +15,3 @@ tsobj.
 \description{
 fitler stocks that have low NP forcast
 }
-

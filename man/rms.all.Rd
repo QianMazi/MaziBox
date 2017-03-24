@@ -15,4 +15,3 @@ tsobj.
 \description{
 filter stocks to remove negative event.
 }
-

@@ -17,4 +17,3 @@ rtndemo
 A dataset containing stock index and bond index daily return data since 2009.
 }
 \keyword{datasets}
-

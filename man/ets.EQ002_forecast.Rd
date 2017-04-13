@@ -4,7 +4,7 @@
 \alias{ets.EQ002_forecast}
 \title{get ETS of EQ002 forecast strategy.}
 \usage{
-ets.EQ002_forecast(ob_win = 20, withlatest = FALSE)
+ets.EQ002_forecast(ahead_win = 20, withlatest = TRUE)
 }
 \value{
 ETS object.

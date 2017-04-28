@@ -222,6 +222,102 @@ strategy_rtn_rough <- function(etsfunc, funcparlist,
   return(relist)
 }
 
+#' get month MA for TS
+#'
+#' @param ts TS.
+#' @param N
+#' @return dataframe.
+#' @export
+#' @examples
+#' ts <- ets.employeeplan()
+#' N = 9
+#' test <- MonthMA(ts,N)
+MonthMA <- function(ts, N){
+  # tmp funcs
+  TS.getTech_ts2 <- function(TS,funchar,varname=funchar, Rate=1, RateDay=0){
+    check.TS(TS)
+
+    tmpfile <- TS
+    tmpfile$stockID <- stockID2stockID(tmpfile$stockID,from="local",to="ts")
+    tmpfile$date <- as.character(tmpfile$date)
+
+    tmpcsv <- tempfile(fileext=".csv")
+    tmpcsv2 <- stringr::str_replace_all(tmpcsv,'\\\\',"\\\\\\\\")
+    write.csv(tmpfile,tmpcsv,row.names=FALSE,quote=FALSE)
+
+    subqr <- ""
+    for( i in 1:length(funchar)){
+      subqr <- paste0(subqr, '  factorexp[',i-1,'] := &"',funchar[i],'";  ')
+    }
+    subqr2 <- ""
+    if(!is.null(Rate)){
+      subqr2 <- paste0(subqr2, ' SetSysParam(pn_rate(), ',Rate,'); ')
+    }
+    if(!is.null(RateDay)){
+      subqr2 <- paste0(subqr2, ' SetSysParam(pn_rateday(), ',RateDay,'); ')
+    }
+    len.funchar <- length(funchar)-1
+
+    qrstr <- paste0('oV:=BackUpSystemParameters();
+                    SetSysParam(pn_cycle(),cy_month());
+                    ',subqr2,'
+                    rdo2 importfile(ftcsv(),"","',tmpcsv2,'",timestockframe);
+                    factorexp := array();
+                    ',subqr,'
+                    result:=array();
+                    for i:=0 to length(timestockframe)-1 do
+                    begin
+                    SetSysParam(pn_stock(),timestockframe[i]["stockID"]);
+                    SetSysParam(pn_date(),strtodate(timestockframe[i]["date"]));
+                    for j:= 0 to ',len.funchar,' do
+                    begin
+                    factorvalue:=eval(factorexp[j]);
+                    result[i][j]:=factorvalue;
+                    end;
+                    end;
+                    RestoreSystemParameters(oV);
+                    return result;')
+    tsRequire()
+    fct <- tsRemoteExecute(qrstr)
+    fct <- plyr::ldply(fct, unlist)
+    colnames(fct) <- varname
+    result <- cbind(TS,fct)
+    return(result)
+  }
+  # begin
+  ts_raw <- ts
+  ts$date2 <- trday.offset(datelist = ts$date, by = months(-1))
+  ts$lag <- lubridate::month(ts$date) - lubridate::month(ts$date2)
+  # adjust over adjustment
+  ind_ <- ts$lag != 1 & ts$lag != -11
+  ind_ <- (1:nrow(ts))[ind_]
+  for( i in ind_){
+    while(ts$lag[i] == 2 | ts$lag[i] == -10){
+      ts$date2[i] <- trday.nearby(ts$date2[i], by = 2)
+      ts$lag[i] <- lubridate::month(ts$date[i]) - lubridate::month(ts$date2[i])
+    }
+  }
+  # double check
+  ts$lag <- lubridate::month(ts$date) - lubridate::month(ts$date2)
+  ind_ <- ts$lag != 1 & ts$lag != -11
+  if(sum(ind_) != 0) stop("bugs in date adjustment")
+  # get monthly ma
+  ts <- renameCol(ts, "date", "raw_date")
+  ts <- renameCol(ts, "date2","date")
+  funchar <- paste0("ma(close(),",N-1,")")
+  ts <- TS.getTech_ts2(TS = ts, funchar = funchar, varname = "MApart")
+  # get price
+  ts <- renameCol(ts, "date", "adj_date")
+  ts <- renameCol(ts, "raw_date","date")
+  ts <- TS.getTech_ts(ts, funchar = "close()", varname = "close")
+  # recalculate
+  ts$MA <- (ts$close + ts$MApart*(N-1))/N
+  # output
+  re <- ts[,c("date","stockID","MA")]
+  return(re)
+}
+
+
 # ----- Internal using functions -----
 
 #' Fill in the NA.

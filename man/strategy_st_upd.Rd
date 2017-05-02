@@ -4,7 +4,7 @@
 \alias{strategy_st_upd}
 \title{ST strategy update}
 \usage{
-strategy_st_upd(wgt_limit = 0.1)
+strategy_st_upd(st_strat_relist, wgt_limit = 0.1)
 }
 \arguments{
 \item{wgt_limit}{Default 0.1, the maximum weight for one individual stock.}
@@ -16,6 +16,6 @@ A list, containing rtn and port.
 update the local st_strat.RData to the latest date(sys.date - 1).
 }
 \examples{
-relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
-relist <- strategy_st_upd()
+st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
+st_strat_relist <- strategy_st_upd(st_strat_relist)
 }

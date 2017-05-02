@@ -1780,6 +1780,7 @@ strategy_st_upd <- function(st_strat_relist,wgt_limit = 0.1){
   endT <- Sys.Date()-1
   endT <- trday.nearest(endT)
   if(begT >= endT) {return("Done!")}
+  begT <- trday.nearby(begT,1)
   new_relist <- strategy_st_init(begT, endT, wgt_limit = wgt_limit)
   new_rtn <- new_relist$rtn
   new_port2 <- new_relist$port

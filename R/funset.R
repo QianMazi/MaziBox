@@ -1636,6 +1636,7 @@ lcdb.build.EE_ForecastAndReport <- function(){
   return("Done!")
 }
 
+
 # ----- Daily Report Part -----
 
 #' ST strategy initiate
@@ -1643,12 +1644,11 @@ lcdb.build.EE_ForecastAndReport <- function(){
 #' @param begT
 #' @param endT
 #' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
-#' @param save_result Logical. Default FALSE. Whether to save result into local RData.
 #' @return A list, containing rtn and port.
 #' @export
 #' @examples
-#' relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
-strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
+#' st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
+strategy_st_init <- function(begT,endT,wgt_limit = 0.1){
   ######## input
   if(missing(begT)){begT <- as.Date("2010-01-04")}
   if(missing(endT)){endT <- Sys.Date()-1}
@@ -1672,7 +1672,7 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
   tmpdat$flag <- tmpre$flag
   # db2
   require(WindR)
-  WindR::w.start()
+  WindR::w.start(showmenu = FALSE)
   w_wset_data <- WindR::w.wset('carryoutspecialtreatment','startdate=2009-01-01',enddate=Sys.Date()-1)
   raw_dat <- w_wset_data$Data
   raw_dat$implementation_date <- WindR::w.asDateTime(raw_dat$implementation_date, asdate = TRUE)
@@ -1758,26 +1758,21 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
   }
   port2 <- data.table::rbindlist(port)
   st_strat_relist <- list("rtn" = rtn, "port" = port2)
-  ######### whether save
-  if(save_result){
-    save(st_strat_relist, file = "st_strat.RData")
-  }
   # output
   return(st_strat_relist)
 }
 
+
 #' ST strategy update
 #'
-#' @description update the local st_strat.RData to the latest date(sys.date - 1).
+#' @description update the st dataset to the latest date(sys.date - 1).
 #' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
 #' @return A list, containing rtn and port.
 #' @export
 #' @examples
-#' relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
-#' relist <- strategy_st_upd()
-strategy_st_upd <- function(wgt_limit = 0.1){
-  # load
-  load("st_strat.RData")
+#' st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
+#' st_strat_relist <- strategy_st_upd(st_strat_relist)
+strategy_st_upd <- function(st_strat_relist,wgt_limit = 0.1){
   old_rtn <- st_strat_relist$rtn
   old_port2 <- st_strat_relist$port
   # extract date
@@ -1792,8 +1787,6 @@ strategy_st_upd <- function(wgt_limit = 0.1){
   rtn <- rbind(old_rtn,new_rtn)
   port2 <- rbind(old_port2, new_port2)
   st_strat_relist <- list("rtn" = rtn, "port" = port2)
-  # save
-  save(st_strat_relist, file = "st_strat.RData")
   # output
   return(st_strat_relist)
 }

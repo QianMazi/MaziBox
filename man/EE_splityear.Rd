@@ -19,4 +19,3 @@ A list containing plots and data.
 \description{
 Split and return the plots of each year
 }
-

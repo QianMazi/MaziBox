@@ -17,4 +17,3 @@ A vector which each row represents the lag of days between begT and endT.
 \description{
 Count trading days by passing vector inputs.
 }
-

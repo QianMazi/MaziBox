@@ -4,12 +4,10 @@
 \alias{strategy_st_init}
 \title{ST strategy initiate}
 \usage{
-strategy_st_init(begT, endT, wgt_limit = 0.1, save_result = FALSE)
+strategy_st_init(begT, endT, wgt_limit = 0.1)
 }
 \arguments{
 \item{wgt_limit}{Default 0.1, the maximum weight for one individual stock.}
-
-\item{save_result}{Logical. Default FALSE. Whether to save result into local RData.}
 }
 \value{
 A list, containing rtn and port.
@@ -18,6 +16,5 @@ A list, containing rtn and port.
 ST strategy initiate
 }
 \examples{
-relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
+st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
 }
-

@@ -1647,7 +1647,7 @@ lcdb.build.EE_ForecastAndReport <- function(){
 #' @return A list, containing rtn and port.
 #' @export
 #' @examples
-#' relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
+#' st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
 strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
   ######## input
   if(missing(begT)){begT <- as.Date("2010-01-04")}
@@ -1672,7 +1672,7 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
   tmpdat$flag <- tmpre$flag
   # db2
   require(WindR)
-  WindR::w.start()
+  WindR::w.start(showmenu = FALSE)
   w_wset_data <- WindR::w.wset('carryoutspecialtreatment','startdate=2009-01-01',enddate=Sys.Date()-1)
   raw_dat <- w_wset_data$Data
   raw_dat$implementation_date <- WindR::w.asDateTime(raw_dat$implementation_date, asdate = TRUE)
@@ -1766,6 +1766,7 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
   return(st_strat_relist)
 }
 
+
 #' ST strategy update
 #'
 #' @description update the local st_strat.RData to the latest date(sys.date - 1).
@@ -1777,7 +1778,7 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
 #' relist <- strategy_st_upd()
 strategy_st_upd <- function(wgt_limit = 0.1){
   # load
-  load("st_strat.RData")
+  #load("st_strat.RData")
   old_rtn <- st_strat_relist$rtn
   old_port2 <- st_strat_relist$port
   # extract date

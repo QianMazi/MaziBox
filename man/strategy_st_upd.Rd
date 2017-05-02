@@ -19,4 +19,3 @@ update the local st_strat.RData to the latest date(sys.date - 1).
 relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
 relist <- strategy_st_upd()
 }
-

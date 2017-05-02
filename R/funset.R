@@ -291,16 +291,18 @@ MonthMA <- function(ts, N){
   # adjust over adjustment
   ind_ <- ts$lag != 1 & ts$lag != -11
   ind_ <- (1:nrow(ts))[ind_]
-  for( i in ind_){
-    while(ts$lag[i] == 2 | ts$lag[i] == -10){
-      ts$date2[i] <- trday.nearby(ts$date2[i], by = 2)
-      ts$lag[i] <- lubridate::month(ts$date[i]) - lubridate::month(ts$date2[i])
-    }
-  }
+  ts$date2[ind_] <- trday.nearby(ts$date2[ind_], by = 5)
   # double check
   ts$lag <- lubridate::month(ts$date) - lubridate::month(ts$date2)
   ind_ <- ts$lag != 1 & ts$lag != -11
-  if(sum(ind_) != 0) stop("bugs in date adjustment")
+  if(sum(ind_) != 0){
+    for( i in ind_){
+      while(ts$lag[i] == 2 | ts$lag[i] == -10){
+        ts$date2[i] <- trday.nearby(ts$date2[i], by = 2)
+        ts$lag[i] <- lubridate::month(ts$date[i]) - lubridate::month(ts$date2[i])
+      }
+    }
+  }
   # get monthly ma
   ts <- renameCol(ts, "date", "raw_date")
   ts <- renameCol(ts, "date2","date")
@@ -1635,6 +1637,167 @@ lcdb.build.EE_ForecastAndReport <- function(){
 }
 
 # ----- Daily Report Part -----
+
+#' ST strategy initiate
+#'
+#' @param begT
+#' @param endT
+#' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
+#' @param save_result Logical. Default FALSE. Whether to save result into local RData.
+#' @return A list, containing rtn and port.
+#' @export
+#' @examples
+#' relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
+strategy_st_init <- function(begT,endT,wgt_limit = 0.1,save_result = FALSE){
+  ######## input
+  if(missing(begT)){begT <- as.Date("2010-01-04")}
+  if(missing(endT)){endT <- Sys.Date()-1}
+  ######## prep
+  # rpt sq
+  sq1 <- seq(2000, 2017)
+  sq2 <- c('0331','0630','0930','1231')
+  resq <- c()
+  for(i in sq1){resq <- c(resq, paste0(i,sq2))}
+  resq <- as.integer(resq)
+  # db
+  tmpdat <- queryAndClose.dbi(db.local(), "select * from EE_ForecastAndReport")
+  # rough filter to speed up
+  tmpdat <- subset(tmpdat, lubridate::year(begT) - 1 <= as.integer(substr(enddate,1,4)))
+
+  # IsST
+  TS_ <- tmpdat[,c("enddate","stockID")]
+  colnames(TS_) <- c("date","stockID")
+  TS_$date <- intdate2r(TS_$date)
+  tmpre <- TS.getTech_ts(TS_,"IsST_()",varname = "flag")
+  tmpdat$flag <- tmpre$flag
+  # db2
+  require(WindR)
+  WindR::w.start()
+  w_wset_data <- WindR::w.wset('carryoutspecialtreatment','startdate=2009-01-01',enddate=Sys.Date()-1)
+  raw_dat <- w_wset_data$Data
+  raw_dat$implementation_date <- WindR::w.asDateTime(raw_dat$implementation_date, asdate = TRUE)
+  raw_dat <- subset(raw_dat, sec_type == sort(unique(raw_dat$sec_type))[1])
+  reason_case <- sort(unique(raw_dat$reason))
+  qualified_st <- subset(raw_dat, reason %in% reason_case[5:8])
+  qualified_stockID <- stockID2stockID(qualified_st$wind_code, from = "wind", to = "local")
+  qualified_stockID <- unique(qualified_stockID)
+  # subset
+  tmpdat2 <- subset(tmpdat, flag == 1 & ForcastType == 3 & substr(enddate,5,8) == "1231")
+  tmpdat3 <- subset(tmpdat2, stockID %in% qualified_stockID)
+  # endT column
+  tmpdat3$endT <- tmpdat3$FirstReservedDate
+  ind1 <- tmpdat3$FirstChangeDate > 0
+  ind1[is.na(ind1)] <- FALSE
+  tmpdat3$endT[ind1] <- tmpdat3$FirstChangeDate[ind1]
+  ind2 <- tmpdat3$SecondChangeDate > 0
+  ind2[is.na(ind2)] <- FALSE
+  tmpdat3$endT[ind2] <- tmpdat3$SecondChangeDate[ind2]
+  ind3 <- tmpdat3$ThirdChangeDate > 0
+  ind3[is.na(ind3)] <- FALSE
+  tmpdat3$endT[ind3] <- tmpdat3$ThirdChangeDate[ind3]
+  # fix duplicated case
+  for(i in 1:nrow(tmpdat3)){
+    stockID_ <- tmpdat3$stockID[i]
+    enddate_ <- tmpdat3$enddate[i]
+    ind_ <- match(enddate_, resq)
+    enddate_ <- resq[ind_ - 1]
+    re_ <- subset(tmpdat, stockID == stockID_ & enddate == enddate_)
+    lasttomatch_ <- re_$ActualDate[1]
+    if(is.na(lasttomatch_)) next
+    if(tmpdat3$date[i] == lasttomatch_){
+      tmpdat3$endT[i] <- NA
+    }
+  }
+  tmpdat3 <- tmpdat3[,c("stockID","enddate","date","endT")]
+  tmpdat3 <- na.omit(tmpdat3)
+  tmpdat3 <- tmpdat3[!duplicated(tmpdat3[,c("stockID","enddate")]),]
+  ######### back test
+  holding_case <- tmpdat3[,c("date","endT","stockID")]
+  holding_case <- na.omit(holding_case)
+  colnames(holding_case) <- c("begT","endT","stockID")
+  holding_case$begT <- intdate2r(holding_case$begT)
+  holding_case$endT <- intdate2r(holding_case$endT)
+
+  datelist <- getRebDates(begT, endT, rebFreq = "day")
+  rtn <- data.frame()
+  port <- vector("list", length = length(datelist))
+  for(i in 1:length(datelist)){
+    TD_ <- datelist[i]
+    pool_ <- subset(holding_case, begT <= TD_ & endT >= TD_, select = "stockID")
+    if(nrow(pool_) == 0) next
+    pool_$date <- TD_
+    pool_ <- pool_[,c("date","stockID")]
+    pool_ <- TS.getTech_ts(pool_,"IsST_()",varname = "flag")
+    pool_ <- subset(pool_, flag > 0)
+    if(nrow(pool_) == 0) next
+    pool_ <- is_priceLimit(pool_, lim = c(-4.9,4.9), priceType = "open")
+    if(sum(pool_$overlim) > 0){
+      ind_ <- (1:nrow(pool_))[pool_$overlim]
+      if(i == 1){
+        ind2_ <- rep(FALSE, length(ind_))
+      }else if(is.null(port[[i-1]])){
+        ind2_ <- rep(FALSE, length(ind_))
+      }else{
+        ind2_ <- pool_$stockID[ind_] %in% port[[i-1]]$stockID
+      }
+      if(sum(!ind2_) > 0){
+        ind3_ <- ind_[!ind2_]
+        pool_$overlim[ind3_] <- NA
+      }
+    }
+    pool_ <- na.omit(pool_)
+    if(nrow(pool_) == 0) next
+    row.names(pool_) <- NULL
+    pool_$wgt <- 1/nrow(pool_)
+    pool_$wgt[pool_$wgt > wgt_limit] <- wgt_limit
+    port[[i]] <- pool_
+    TSR_ <- TS.getTech(pool_, variables = "pct_chg")
+    TSR_$pct_chg <- fillna(TSR_$pct_chg, method = "zero")
+    rtn_ <- data.frame("date" = TD_, "rtn" = sum(TSR_$pct_chg * TSR_$wgt))
+    rtn <- rbind(rtn, rtn_)
+  }
+  port2 <- data.table::rbindlist(port)
+  st_strat_relist <- list("rtn" = rtn, "port" = port2)
+  ######### whether save
+  if(save_result){
+    save(st_strat_relist, file = "st_strat.RData")
+  }
+  # output
+  return(st_strat_relist)
+}
+
+#' ST strategy update
+#'
+#' @description update the local st_strat.RData to the latest date(sys.date - 1).
+#' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
+#' @return A list, containing rtn and port.
+#' @export
+#' @examples
+#' relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
+#' relist <- strategy_st_upd()
+strategy_st_upd <- function(wgt_limit = 0.1){
+  # load
+  load("st_strat.RData")
+  old_rtn <- st_strat_relist$rtn
+  old_port2 <- st_strat_relist$port
+  # extract date
+  begT <- tail(old_port2$date,1)
+  endT <- Sys.Date()-1
+  endT <- trday.nearest(endT)
+  if(begT >= endT) {return("Done!")}
+  new_relist <- strategy_st_init(begT, endT, wgt_limit = wgt_limit, save_result = FALSE)
+  new_rtn <- new_relist$rtn
+  new_port2 <- new_relist$port
+  # combine
+  rtn <- rbind(old_rtn,new_rtn)
+  port2 <- rbind(old_port2, new_port2)
+  st_strat_relist <- list("rtn" = rtn, "port" = port2)
+  # save
+  save(st_strat_relist, file = "st_strat.RData")
+  # output
+  return(st_strat_relist)
+}
+
 
 #' rpt.unfroz_show
 #'

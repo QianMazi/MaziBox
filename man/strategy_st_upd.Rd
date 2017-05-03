@@ -13,7 +13,7 @@ strategy_st_upd(st_strat_relist, wgt_limit = 0.1)
 A list, containing rtn and port.
 }
 \description{
-update the local st_strat.RData to the latest date(sys.date - 1).
+update the st dataset to the latest date(sys.date - 1).
 }
 \examples{
 st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)

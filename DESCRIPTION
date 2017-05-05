@@ -2,11 +2,25 @@ Package: MaziBox
 Type: Package
 Title: What the Package Does (Title Case)
 Version: 0.1.0
-Imports: xts, lubridate, plyr, QUtility, QDataGet, RFactorModel, DBI, ggplot2, RODBC, data.table, dplyr, WindR, robustHD
-Depends: RSQLite
+Imports:
+    xts,
+    lubridate,
+    plyr,
+    QUtility,
+    QDataGet,
+    RFactorModel,
+    DBI,
+    ggplot2,
+    RODBC,
+    data.table,
+    dplyr,
+    WindR,
+    robustHD
+Depends:
+    RSQLite
 Author: Mazi
 Maintainer: Mazi <qianhan_cn@qq.com>
 Description: This is the mysterious box owned by Mazi
 License: What license is it under?
 LazyData: TRUE
-RoxygenNote: 6.0.1
+RoxygenNote: 5.0.1

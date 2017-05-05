@@ -17,3 +17,4 @@ A data frame with date, stockID, event and the lag of days.
 \description{
 plug in ts object and return with ets object.
 }
+

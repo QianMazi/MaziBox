@@ -17,3 +17,4 @@ A vector that row-bind all the trading days between begT and endT.
 \description{
 Get tradingday by passing in vector inputs.
 }
+

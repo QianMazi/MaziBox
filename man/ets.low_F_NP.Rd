@@ -12,3 +12,4 @@ ETS object.
 \description{
 get ETS of stocks with low forecasting
 }
+

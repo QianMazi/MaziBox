@@ -1780,6 +1780,7 @@ strategy_st_upd <- function(st_strat_relist,wgt_limit = 0.1){
   endT <- Sys.Date()-1
   endT <- trday.nearest(endT)
   if(begT >= endT) {return("Done!")}
+  begT <- trday.nearby(begT,1)
   new_relist <- strategy_st_init(begT, endT, wgt_limit = wgt_limit, save_result = FALSE)
   new_rtn <- new_relist$rtn
   new_port2 <- new_relist$port
@@ -1834,7 +1835,7 @@ rpt.EQ002_show <- function(begT=as.Date("2013-01-04"),
   ets <- ets.EQ002_forecast(withlatest = TRUE, ahead_win = ob_win)
   ets$enddate <- trday.nearby(ets$date, ob_win)
   port <- list()
-  rtn <- c()
+  rtn <- data.frame()
   for( i in 1:length(datelist)){
     TD <- datelist[i]
     TS_ <- subset(ets, date <= TD & enddate >= TD, select = stockID)
@@ -1845,11 +1846,13 @@ rpt.EQ002_show <- function(begT=as.Date("2013-01-04"),
     TSR_$wgt[TSR_$wgt > wgtmax] <- wgtmax
     TSR_$pct_chg <- fillna(TSR_$pct_chg, "zero")
     port[[i]] <- TSR_
-    rtn[i] <- sum(TSR_$pct_chg * TSR_$wgt)
+    rtn_ <- sum(TSR_$pct_chg * TSR_$wgt)
+    rtndf_ <- data.frame("date" = TD, "rtn" = rtn_)
+    rtn <- rbind(rtn, rtndf_)
   }
   # rtn
-  rtn <- fillna(rtn,"zero")
-  re <- xts::as.xts(rtn, order.by = datelist)
+  rtn$rtn <- fillna(rtn$rtn,"zero")
+  re <- xts::as.xts(rtn$rtn, order.by = rtn$date)
   # output
   port <- data.table::rbindlist(port)
   relist <- list("rtn" = re, "port" = port)

@@ -19,3 +19,4 @@ ts object with event score.
 \description{
 plug in ts object and return with ets score.
 }
+

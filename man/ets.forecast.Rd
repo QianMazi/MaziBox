@@ -13,3 +13,4 @@ ETS object
 \description{
 get ETS of forecast report
 }
+

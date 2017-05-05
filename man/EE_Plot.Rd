@@ -22,3 +22,4 @@ ETS <- data.frame(date, stockID)
 TSErr <- EE_GetTSErr(ETS)
 EE_Plot(TSErr)
 }
+

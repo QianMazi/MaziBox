@@ -12,3 +12,4 @@ ETS object.
 \description{
 get ETS of EQ002 forecast strategy.
 }
+

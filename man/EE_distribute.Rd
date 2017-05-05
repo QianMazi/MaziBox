@@ -10,4 +10,3 @@ EE_distribute(ETS, TSErr, bin = c("year", "yearmonth", "month", "yearquarter",
 \description{
 plot event histogram
 }
-

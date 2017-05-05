@@ -13,4 +13,3 @@ lcdb.update.EE_employeeplan
 library(WindR)
 lcdb.update.EE_employeeplan()
 }
-

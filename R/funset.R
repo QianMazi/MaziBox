@@ -1859,6 +1859,71 @@ rpt.EQ002_show <- function(begT=as.Date("2013-01-04"),
   return(relist)
 }
 
+#' return daily emotion report
+#'
+#' @param begT
+#' @param endT
+#' @return data frame
+#' @export
+rpt.dailyemotion <- function(begT, endT){
+  ######## Pool
+  datelist <- getRebDates(begT, endT, rebFreq = "day")
+  stockpool <- getIndexComp("EI801003", endT = datelist, datasrc = "ts") # vec
+  total_num <- nrow(stockpool)
+  stockpool <- is_suspend(TS = stockpool)
+  stockpool <- TS.getTech_ts(stockpool, funchar = c("IsST_()","StockGoMarketDays()"),varname = c("st","days"))
+
+  ######## LOOP
+  stockpoolrecord <- data.frame()
+  finalre <- data.frame()
+  for(i in 1:length(datelist)){
+
+    TD_ <- datelist[i]
+    TD_ts <- rdate2ts(TD_)
+    TD_0 <- trday.nearby(TD_, by = -60)
+    TD_0_ts <- rdate2ts(TD_0)
+    stockpool_ <- subset(stockpool, date == TD_)
+    qr0 <- c("StockHigh(","StockLow(")
+    qr0 <- paste0(qr0,TD_0_ts,",")
+    qr1 <- c("StockIsZt(","StockIsZt2(","StockIsDt(","StockIsDt2(","StockHigh4(","StockLow4(",qr0)
+    qr2 <- paste0(qr1,TD_ts,")")
+    qr2 <- c(qr2,"IsDtpl(5,10,20,30)","IsKtpl(5,10,20,30)")
+    stockpool_ <- TS.getTech_ts(stockpool_, funchar = qr2, varname = c("zt","yzzt","dt","yzdt","high","low","sixtyhigh","sixtylow","dtpl","ktpl"))
+
+    re <- stockpool_
+    stockpoolrecord <- rbind(stockpoolrecord, stockpool_)
+    bottom_re <- subset(re, st == 0 & sus == FALSE & days > 120 & yzzt == 0 & yzdt == 0)
+    bottom_num <- nrow(bottom_re)
+
+    ######## zt & dt
+    dat_zt <- subset(bottom_re, zt == 1)
+    zt_num <- nrow(dat_zt)
+
+    dat_dt <- subset(bottom_re, dt == 1)
+    dt_num <- nrow(dat_dt)
+
+    ####### 60 days best
+    dat_sixtyhigh <- subset(bottom_re, high == sixtyhigh)
+    sixtyhigh_num <- nrow(dat_sixtyhigh)
+
+    dat_sixtylow <- subset(bottom_re, low == sixtylow)
+    sixtylow_num <- nrow(dat_sixtylow)
+
+    ######## MA arranging
+    dat_dtpl <- subset(bottom_re, dtpl == 1)
+    dtpl_num <- nrow(dat_dtpl)
+
+    dat_ktpl <- subset(bottom_re, ktpl == 1)
+    ktpl_num <- nrow(dat_ktpl)
+
+    ######## output
+    finalre_ <- data.frame("date" = TD_, "obs" = bottom_num, "zt" = zt_num, "dt" = dt_num,
+                           "sixtyhigh" = sixtyhigh_num, "sixtylow" = sixtylow_num, "dtpl" = dtpl_num, "ktpl" = ktpl_num)
+    finalre <- rbind(finalre, finalre_)
+  }
+  return(finalre)
+}
+
 # ----- Tempararoy Wasted -----
 
 #' plug in ets and return frequency of certain period.

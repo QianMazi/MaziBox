@@ -19,4 +19,3 @@ A TS object with index.
 \description{
 Expand ETS object into TS object with index. Multi-row version.
 }
-

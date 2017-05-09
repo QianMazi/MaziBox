@@ -9,4 +9,3 @@ lcdb.build.EE_CroxSecReg(begT, endT, factorLists)
 \description{
 lcdb.build.EE_CroxSecReg
 }
-

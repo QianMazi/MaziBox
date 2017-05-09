@@ -39,4 +39,3 @@ EE_SplitAnalyzer(ets,"simple_sector")
 EE_SplitAnalyzer(ets,"EQ")
 EE_SplitAnalyzer(ets,"size")
 }
-

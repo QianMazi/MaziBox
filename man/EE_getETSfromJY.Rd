@@ -39,4 +39,3 @@ key.df <- rbind(buildkey("TranShareType",1040),
                 buildkey("ReceiverEcoNature",1096,2))
 tmpdat <- EE_getETSfromJY(SheetName = "LC_ShareTransfer", key.df)
 }
-

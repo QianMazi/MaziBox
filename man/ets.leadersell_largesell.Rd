@@ -12,4 +12,3 @@ ETS object.
 \description{
 get ETS of leader selling stocks a lot within a few times.
 }
-

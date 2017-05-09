@@ -13,4 +13,3 @@ lcdb.update.EE_LeaderStockAlter
 library(WindR)
 lcdb.update.EE_LeaderStockAlter()
 }
-

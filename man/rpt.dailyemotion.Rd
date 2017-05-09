@@ -12,4 +12,3 @@ data frame
 \description{
 return daily emotion report
 }
-

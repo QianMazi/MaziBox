@@ -17,3 +17,4 @@ etsobj
 \description{
 plug in ets and return accumulated value of certain varialbe.
 }
+

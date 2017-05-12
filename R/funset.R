@@ -1924,6 +1924,86 @@ rpt.dailyemotion <- function(begT, endT){
   return(finalre)
 }
 
+#' RSRS timing
+#'
+#' @param indexID
+#' @param begT
+#' @param endT
+#' @param param_N The length of time series used to fit beta.
+#' @param param_M The length of data used to smooth and adjust beta.
+#' @param param_S The epsilon used to control buy and sell.
+#' @return A list, containing rtn and finalre.
+#' @export
+rsrs_timing <- function(indexID = "EI000300",
+                        begT = as.Date("2002-01-05"),
+                        endT = Sys.Date() - 1,
+                        param_N = 18,
+                        param_M = 600,
+                        param_S = 0.8){
+  # index
+  datelist <- getRebDates(begT,endT, rebFreq = "day")
+  TS <- data.frame("date" = datelist, "stockID" = indexID)
+  # high/low price ts
+  dat <- TS.getTech_ts(TS, funchar = c("high()","low()"), varname = c("high","low"))
+  # fit and get beta
+  re <- data.frame()
+  for( i in (param_N):length(datelist)){
+    TD_ <- datelist[i]
+    dat_ <- dat[(i-param_N+1):i,]
+    fit <- lm(dat_$high~dat_$low)
+    beta_ <- fit$coefficients[2]
+    attributes(beta_) <- NULL
+    re_ <- data.frame("date" = TD_, "beta" = beta_)
+    re <- rbind(re, re_)
+  }
+  # smooth beta get Z score
+  datelist <- re$date
+  re_adj <- data.frame()
+  for( i in (param_M):length(datelist)){
+    TD_ <- datelist[i]
+    dat_ <- re[(i-param_M+1):i,]
+    temp_ <- scale(dat_$beta)
+    beta_adj_ <- tail(temp_,1)
+    attributes(beta_adj_) <- NULL
+    re_adj_ <- data.frame("date" = TD_, "beta_adj" = beta_adj_)
+    re_adj <- rbind(re_adj, re_adj_)
+  }# output re_adj
+  # backtest
+  datelist <- re_adj$date
+  TS <- data.frame("date" = datelist, "stockID" = indexID)
+  TS <- merge(TS, re_adj, by = "date")
+  finalre <- TS
+  finalre <- TS.getTech_ts(finalre,funchar = c("StockZf3()","CMa_v(20)"), varname = c("pct_chg","MA"))
+  finalre$pct_chg <- finalre$pct_chg/100
+  finalre$hold <- 0
+  finalre$rtn <- 0
+  finalre$NV <- 1
+  for( i in 4:length(datelist)){
+    if(finalre$hold[i-1] == 1){
+      if(finalre$beta_adj[i] < -param_S){
+        finalre$hold[i] <- 0
+      }else{
+        finalre$hold[i] <- 1
+      }
+    }else if(finalre$hold[i-1] == 0){
+      if(finalre$beta_adj[i] > param_S){
+        if( finalre$MA[i-1]>finalre$MA[i-2] & finalre$MA[i-1]>finalre$MA[i-3]){
+          finalre$hold[i] <- 1
+        }
+      }
+    }
+    if(finalre$hold[i-1] == 1){
+      finalre$NV[i] <- finalre$NV[i-1] * (1 + finalre$pct_chg[i])
+      finalre$rtn[i] <- finalre$pct_chg[i]
+    }else{
+      finalre$NV[i] <- finalre$NV[i-1]
+    }
+  }
+  rtn <- as.xts(x = finalre$rtn, order.by = finalre$date)
+  relist <- list("finalre" = finalre, "rtn" = rtn)
+  return(relist)
+}
+
 # ----- Tempararoy Wasted -----
 
 #' plug in ets and return frequency of certain period.

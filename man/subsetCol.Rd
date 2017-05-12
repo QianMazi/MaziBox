@@ -19,3 +19,4 @@ data frame subset.
 \description{
 adjusted subset function for Chinese string.
 }
+

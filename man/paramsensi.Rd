@@ -25,3 +25,4 @@ The function right now could only support 2 params varing. To write the funcqr q
 paramsensi("sum(1:param_1)", param_1 = 1:20)
 paramsensi("param_1*param_2", param_1 = 1:10, param_2 = 1:9)
 }
+

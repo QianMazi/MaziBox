@@ -20,3 +20,4 @@ ts <- ets.employeeplan()
 N = 9
 test <- MonthMA(ts,N)
 }
+

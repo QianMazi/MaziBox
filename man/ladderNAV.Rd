@@ -29,3 +29,4 @@ re <- ladderNAV(assetRtn,ruledf,rebalance)
 \author{
 han.qian
 }
+

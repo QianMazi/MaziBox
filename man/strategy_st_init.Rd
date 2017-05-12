@@ -18,3 +18,4 @@ ST strategy initiate
 \examples{
 st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
 }
+

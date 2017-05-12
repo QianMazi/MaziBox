@@ -34,3 +34,4 @@ ggplot.WealthIndex(list1$rtn)
 list2 <- strategy_rtn_rough(etsfunc = c("ets.EQ002_forecast","ets.employeeplan"), funcparlist = list(list(ahead_win = 15),NULL) , begT = as.Date("2013-01-04"), ob_win = c(15,20))
 ggplot.WealthIndex(list2$rtn)
 }
+

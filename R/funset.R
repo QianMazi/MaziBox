@@ -1807,9 +1807,11 @@ rpt.unfroz_show <- function(ob_win=10){
   ets0 <- subset(ets0, begT <= Sys.Date())
   ets0$endT <- trday.nearby(TD,-1)
   temp_ <- getPeriodrtn(stockID = ets0$stockID, begT = trday.nearby(ets0$begT,-1), endT = ets0$endT)
-  temp_$begT <- trday.nearby(temp_$begT,1)
+  temp_ <- transform(temp_,stockID=as.character(stockID),
+                      begT=trday.nearby(temp_$begT,1))
   temp_ <- renameCol(temp_, "periodrtn", "periodrtn_stock")
-  temp_$indexID <- stockID2indexID(stockID = temp_$stockID)$indexID
+  indexID <- stockID2indexID(stockID = unique(temp_$stockID))
+  temp_ <- dplyr::left_join(temp_,indexID[,c("stockID","indexID")],by='stockID')
   temp_$periodrtn_index <- 0
   for( i in 1:nrow(temp_)){
     if(temp_$begT[i] > temp_$endT[i]) next

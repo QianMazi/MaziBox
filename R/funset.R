@@ -1561,6 +1561,8 @@ lcdb.build.EE_ForecastAndReport <- function(){
   stocklist <- subset(stocklist, SecuCategory == 1)
   stocklist <- sort(unique(stocklist$ID))
   # step 1
+  tsInclude()
+  tsConnect()
   funchar = "infoarray(128)"
   tmpfile <- stockID2stockID(stocklist,from="local",to="ts")
   tmpcsv <- tempfile(fileext=".csv")
@@ -1724,12 +1726,20 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1){
   for(i in 1:length(datelist)){
     TD_ <- datelist[i]
     pool_ <- subset(holding_case, begT <= TD_ & endT >= TD_, select = "stockID")
-    if(nrow(pool_) == 0) next
+    if(nrow(pool_) == 0){
+      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
+      rtn <- rbind(rtn, rtn_)
+      next
+    }
     pool_$date <- TD_
     pool_ <- pool_[,c("date","stockID")]
     pool_ <- TS.getTech_ts(pool_,"IsST_()",varname = "flag")
     pool_ <- subset(pool_, flag > 0)
-    if(nrow(pool_) == 0) next
+    if(nrow(pool_) == 0){
+      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
+      rtn <- rbind(rtn, rtn_)
+      next
+    }
     pool_ <- is_priceLimit(pool_, lim = c(-4.9,4.9), priceType = "open")
     if(sum(pool_$overlim) > 0){
       ind_ <- (1:nrow(pool_))[pool_$overlim]
@@ -1746,7 +1756,11 @@ strategy_st_init <- function(begT,endT,wgt_limit = 0.1){
       }
     }
     pool_ <- na.omit(pool_)
-    if(nrow(pool_) == 0) next
+    if(nrow(pool_) == 0){
+      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
+      rtn <- rbind(rtn, rtn_)
+      next
+    }
     row.names(pool_) <- NULL
     pool_$wgt <- 1/nrow(pool_)
     pool_$wgt[pool_$wgt > wgt_limit] <- wgt_limit

@@ -4,7 +4,7 @@
 \alias{ets.leaderbuy}
 \title{get ETS of leader buying stocks.}
 \usage{
-ets.leaderbuy()
+ets.leaderbuy(datasrc = c("local"))
 }
 \value{
 ETS object.

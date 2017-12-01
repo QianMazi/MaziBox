@@ -10,7 +10,6 @@ lcdb.build.EE_employeeplan()
 lcdb.build.EE_employeeplan
 }
 \examples{
-library(WindR)
 lcdb.build.EE_employeeplan()
 }
 

@@ -12,6 +12,10 @@
 #' }
 "rtndemo"
 
+#' test
+#'
+"EE_CT"
+
 #' ladder position port function
 #'
 #' @param assetRtn a data frame for stock and bond return.
@@ -64,161 +68,103 @@ ladderNAV <- function(assetRtn,ruledf,rebalance=NULL){
   return(assetRtn)
 }
 
-#' test sensitivity of the parameters
+#' get old NP YOY
 #'
-#' @param funcqr The querry as character strings. Replace the param with the name param_1. And plug in the values into later arguments.
-#' @param param_1 The values to test, could be vector or list.
-#' @param param_2 The values to test, could be vector or list.
-#' @param withPlot Logical value. whether plot the matrix.
-#' @return Result matrix.
-#' @description The function right now could only support 2 params varing. To write the funcqr querry, replace the parameters with the name param_1 and param_2, and plug the vector or list that you would like to test into the latter arguments param_1 and param_2. The result of funcqr could only be one single value.
 #' @export
-#' @examples
-#' paramsensi("sum(1:param_1)", param_1 = 1:20)
-#' paramsensi("param_1*param_2", param_1 = 1:10, param_2 = 1:9)
-paramsensi <- function(funcqr, param_1, param_2, withPlot = TRUE){
-  # table part
-  param_1_raw <- param_1
-  if(missing(param_2)){
-    re <- matrix(nrow = length(param_1_raw))
-    for( i in 1:length(param_1_raw)){
-      if(is.list(param_1_raw)){
-        param_1 <- param_1_raw[[i]]
-      }else{
-        param_1 <- param_1_raw[i]
-      }
-      re[i,] <- eval(parse(text = funcqr))
-    }
-  }else{
-    param_2_raw <- param_2
-    re <- matrix(nrow = length(param_1_raw), ncol = length(param_2_raw))
-    for( i in 1:length(param_1_raw)){
-      for(j in 1:length(param_2_raw)){
-        if(is.list(param_1_raw)){
-          param_1 <- param_1_raw[[i]]
-        }else{
-          param_1 <- param_1_raw[i]
-        }
-        if(is.list(param_2_raw)){
-          param_2 <- param_2_raw[[j]]
-        }else{
-          param_2 <- param_2_raw[j]
-        }
-        re[i,j] <- eval(parse(text = funcqr))
-      }
-    }
+gf.old_NP_YOY <- function(TS,is1q=TRUE,filt=10000000,rm_neg=FALSE,src=c("all","fin","for"),clear_result=TRUE){
+  src <- match.arg(src)
+  if(src=="fin") {
+    src_filt <- "src='fin'"
+  } else if(src=="fin"){
+    src_filt <- "src='for'"
+  } else {
+    src_filt <- "1>0"
   }
-  # plot part
-  if(withPlot){
-    # rename labels
-    if(is.list(param_1_raw)){
-      row.names(re) <- paste0("par_1_list_",1:length(param_1_raw))
-    }else{
-      row.names(re) <- paste0("par_1:",param_1_raw)
-    }
-    if(!missing(param_2)){
-      if(is.list(param_2_raw)){
-        colnames(re) <- paste0("par_2_list_",1:length(param_2_raw))
-      }else{
-        colnames(re) <- paste0("par_2:",param_2_raw)
-      }
-    }else{
-      colnames(re) <- " "
-    }
-    corrplot::corrplot(re,method = "color",
-                       is.corr = FALSE, outline = TRUE, addCoef.col = "black",
-                       tl.col = "black", cl.pos = "n", mar = c(1,0.2,2,0.2),
-                       tl.srt = 45, tl.cex = 0.8, title = "ParamSensiMatrix")
+  check.TS(TS)
+  PeriodMark <- ifelse(is1q,2,3)
+  TS$date <- rdate2int(TS$date)
+  qr <- paste(
+    "select b.date, b.stockID, InfoPublDate,EndDate,NP_YOY as 'factorscore', src, NP_LYCP
+    from LC_PerformanceGrowth a, yrf_tmp b
+    where a.id=(
+    select id from LC_PerformanceGrowth
+    where stockID=b.stockID and InfoPublDate<=b.date and",src_filt,"
+    and PeriodMark=",PeriodMark,"
+    order by InfoPublDate desc, EndDate DESC
+    limit 1,1);
+    "
+  )
+  con <- db.local()
+  dbWriteTable(con,name="yrf_tmp",value=TS[,c("date","stockID")],row.names = FALSE,overwrite = TRUE)
+  re <- DBI::dbGetQuery(con,qr)
+  DBI::dbDisconnect(con)
+  re <- merge.x(TS,re,by=c("date","stockID"))
+  re <- transform(re, date=intdate2r(date))
+
+  # -- filtering
+  if(rm_neg){
+    re[!is.na(re$NP_LYCP) & re$NP_LYCP<filt, "factorscore"] <- NA
+  } else {
+    re[!is.na(re$NP_LYCP) & abs(re$NP_LYCP)<filt, "factorscore"] <- NA
   }
-  # output
-  return(re)
+
+  if(clear_result){# drop cols: InfoPublDate,EndDate, src, NP_LYCP
+    return(re[,c(names(TS),"factorscore")])
+  } else {
+    return(re)
+  }
 }
 
-#' turning ets to rtn series
+#' get reserved publ date according to rptDate
 #'
-#' @param etsfunc ETS function strings, supporting multiple functions. The length of the vector must match ob_win.
-#' @param funcparlist A list. Could be missing. Otherwise, the length of the list must match etsfunc. Each element of the list should be a list or NULL.
-#' @param begT begT
-#' @param endT endT. If NULL, then using latest trading day.
-#' @param univ stock universe. If NULL, considering all stocks. Default NULL.
-#' @param ob_win The holding days window for each ETS strategies.
-#' @param wgtmax The max weight limit for each stock.
-#' @return A list, rtn and port.
 #' @export
-#' @description A function used to turning ets to strategies and roughly calculating returns.
-#' @examples
-#' list1 <- strategy_rtn_rough(etsfunc = "ets.EQ002_forecast", begT = as.Date("2013-01-04"), ob_win = 20)
-#' ggplot.WealthIndex(list1$rtn)
-#' list2 <- strategy_rtn_rough(etsfunc = c("ets.EQ002_forecast","ets.employeeplan"), funcparlist = list(list(ahead_win = 15),NULL) , begT = as.Date("2013-01-04"), ob_win = c(15,20))
-#' ggplot.WealthIndex(list2$rtn)
-strategy_rtn_rough <- function(etsfunc, funcparlist,
-                               begT=as.Date("2013-01-04"),
-                               endT=Sys.Date()-1,
-                               univ = NULL,
-                               ob_win = 20,
-                               wgtmax = 0.05){
-  # stocklist
-  stocklist <- queryAndClose.dbi(db.local(), "select * from SecuMain")
-  stocklist <- subset(stocklist, SecuCategory == 1)
-  stocklist <- sort(unique(stocklist$ID))
-  # funcparlist
-  if(missing(funcparlist)){
-    funcparlist <- vector("list",length = length(etsfunc))
-  }
-  if(length(etsfunc) != length(funcparlist)) stop("length of funcparlist must match etsfunc.")
-  for( i in 1:length(funcparlist)){
-    if(is.null(funcparlist[[i]])){
-      funcparlist[[i]] <- list()
-    }
-  }
-  # input check
-  if(length(etsfunc) != length(ob_win)) stop("length of ob_win must match etsfunc.")
-  # date
-  datelist <- getRebDates(begT,endT,rebFreq = "day")
-  # universe
-  if(!is.null(univ)){
-    TS_raw <- getTS(RebDates = datelist, univ)
-  }else{
-    TS_raw <- getTS(RebDates = datelist, stocks = stocklist)
-  }
-  # pool
-  ets <- data.frame()
-  if(length(etsfunc) > 0){
-    for(i in 1:length(etsfunc)){
-      ets_ <- do.call(what = etsfunc[i], args = funcparlist[[i]])
-      ets_$enddate <- trday.nearby(ets_$date, by = ob_win[i]) # USE ETS DATE SYSTEM
-      ets <- rbind(ets, ets_)
-    }
-    # univ
-    ets <- ets[,c("date","enddate","stockID")]
-    ets <- merge.x(TS_raw, ets, by = c("date","stockID"))
-    ets <- na.omit(ets)
-    ets <- ets[,c("date","enddate","stockID")]
-  }
-  # loop
-  port <- list()
-  rtn <- vector("numeric",length = length(datelist))
-  for( i in 1:length(datelist)){
-    TD <- datelist[i]
-    TS_ <- subset(ets, (date <= TD & TD <= enddate & date < enddate) |
-                    (enddate <= TD & TD <= date & enddate < date), select = stockID) # avoid jump open, delete date
-    if(nrow(TS_)==0) next
-    #
-    TS_$date <- datelist[i]
-    TSR_ <- TS.getTech(TS_,variables = "pct_chg")
-    TSR_$wgt <- 1/nrow(TS_)
-    TSR_$wgt[TSR_$wgt > wgtmax] <- wgtmax
-    TSR_$pct_chg <- fillna(TSR_$pct_chg, "zero")
-    port[[i]] <- TSR_
-    rtn[i] <- sum(TSR_$pct_chg * TSR_$wgt)
-  }
-  # rtn
-  rtn <- fillna(rtn,"zero")
-  re <- xts::as.xts(rtn, order.by = datelist)
-  # output
-  port <- data.table::rbindlist(port)
-  relist <- list("rtn" = re, "port" = port)
-  return(relist)
+rptDate.rsvDate <- function(rptTS){
+  check.rptTS(rptTS)
+  result <- rptTS.getFin_ts(rptTS, funchar ='
+                            "rsvDate",report(128002,RDate),
+                            "chgDate_1",report(128003,RDate),
+                            "chgDate_2",report(128004,RDate),
+                            "chgDate_3",report(128005,RDate)')
+  result$date <- result$rsvDate
+  ind <- !is.na(result$chgDate_1) & result$chgDate_1 > 0
+  result$date[ind] <- result$chgDate_1[ind]
+  ind <- !is.na(result$chgDate_2) & result$chgDate_2 > 0
+  result$date[ind] <- result$chgDate_2[ind]
+  ind <- !is.na(result$chgDate_3) & result$chgDate_3 > 0
+  result$date[ind] <- result$chgDate_3[ind]
+  result <- result[, c("date","stockID")]
+  result$date <- intdate2r(result$date)
+  result$date <- trday.nearest(result$date, dir = 1) # ensure trday
+  return(result)
+}
+
+
+#' get forecast report info according to rptTS
+#'
+#' @return data frame
+#' @export
+rptDate.forecastInfo <- function(rptTS){
+  check.rptTS(rptTS)
+  mazi_tmp <- rptTS[,c("rptDate","stockID")]
+  mazi_tmp$rptDate <- rdate2int(mazi_tmp$rptDate)
+
+  qr <- paste0("select A.* from LC_PerformanceGrowth A, mazi_tmp B
+               where A.src = 'for' and A.PeriodMark=3
+               and A.id = (select id from LC_PerformanceGrowth
+               where stockID=B.stockID and EndDate <= B.rptDate and src='for' and PeriodMark=3
+               order by InfoPublDate desc, EndDate DESC
+               limit 1)")
+
+  # run qr codes
+  con <- db.local()
+  RSQLite::dbWriteTable(con, name = "mazi_tmp", value = mazi_tmp, overwrite = TRUE)
+  result <- RSQLite::dbGetQuery(con, qr)
+  RSQLite::dbDisconnect(con)
+
+  # organize output format
+  result$InfoPublDate <- intdate2r(result$InfoPublDate)
+  result$EndDate <- intdate2r(result$EndDate)
+  return(result)
 }
 
 # ----- Internal using functions -----
@@ -346,7 +292,7 @@ trday.count.vec <- function(begTvec, endTvec){
 }
 
 
-# ----- JY database -----
+# ----- JYDB connection -----
 
 #' build key for key data frame
 #'
@@ -708,7 +654,6 @@ EE_plot <- function(TSErr){
     geom_vline(xintercept = -0.5, color = 'red', linetype = 2)+
     ylab("Daily Abnormal Return")+
     xlab("Date Series")
-  print(p0)
 
   # p1
   rtn_table <- EE_table(TSErr, withSD = TRUE, withACC = TRUE)
@@ -766,6 +711,374 @@ EE_wrap_analyzer <- function(ets, err_database = c("EE_CroxSecReg","EE_CroxSecGr
   names(result_list) <- c("Overall Stat", "Day 0 Performance", "Daily Performance", "Plot")
   return(result_list)
 }
+
+# ----- Backtesting -----
+
+#' back test function for ets
+#'
+#' @param ets the ets object must contain the columns date, stockID and date_end.
+#' @param wgt_limit the biggest wgt of each stock.
+#' @description the function is modified by port.backtest. This revised version could provide different date_end for each stock. The weight is set to eq for each trday. The date in ets is the buying date and the pct_chg in that date is not obtained. The date_end is the selling date and the pct_chg is included.
+#' @return Same result type with port.backtest
+#' @export
+#'
+ets.port_backtest <- function(ets, wgt_limit = 0.1, fee.buy=0, fee.sell=0){
+
+  check.colnames(ets, c("date","stockID","date_end"))
+  # assuming in the first tradable date the pct_chg could not be obtained.
+  # the pct_chg in the date_end is included, wgt changes in the next trday
+
+  # date validation :
+  # the latest date_end is set to (sys.date - 1)
+  TD <- Sys.Date()-1
+  TD <- trday.nearest(TD, -1)
+  ets <- subset(ets, date < TD)
+  ets$date_end[ets$date_end >= TD] <- TD
+
+  # holdingEndT
+  holdingEndT <- max(c(ets$date, ets$date_end))
+
+  # datelist
+  datelist_1 <- unique(ets$date)
+  datelist_2 <- trday.nearby(unique(ets$date_end), by = 1L)
+  datelist <- sort(unique(c(datelist_1, datelist_2)))
+  datelist <- subset(datelist, datelist < holdingEndT)
+
+  #
+  for( ii in 1:length(datelist)){
+    date_ <- datelist[[ii]]
+    ets_ <- subset(ets, date <= date_ & date_ <= date_end)
+    if(nrow(ets_) == 0){
+      pt_ <- data.frame("date" = date_, "stockID" = NA)
+    }else{
+      pt_ <- data.frame("date" = date_, "stockID" = ets_$stockID)
+    }
+    if(ii == 1L){
+      pt <- pt_
+    }else{
+      pt <- rbind(pt, pt_)
+    }
+  }
+
+  # solving problems that same stocks have overlaps holding windows
+  pt <- unique(pt[,c("date","stockID")]) # NA not removed
+  # compute wgt
+  pt <- dplyr::group_by(pt, date)
+  pt <- dplyr::mutate(pt, wgt = min(1/n(), wgt_limit))
+
+  # wide format
+  pt_wide <- reshape2::dcast(data = pt, formula = date ~ stockID, value.var = 'wgt', fill = 0)
+  pt_wide$'NA' <- NULL
+  weights <- xts::xts(pt_wide[,-1],pt_wide[,1])
+  # colnames(weights) <- colnames(pt_wide)[-1]
+  weights <- weights[,sort(colnames(weights))]
+
+  # get R
+  # datelist <- unique(pt_wide$date)
+  R.df <- data.frame()
+  cat("Looping to get the quote data in function 'port.backtest' ....\n")
+  pb <- txtProgressBar(style = 3)
+  for(ii in 1:length(datelist)){
+    date_ <- datelist[ii]
+    pt_ <- subset(pt, date == date_)
+    # to do ...
+    # if nrow == 0
+    stocks <- pt_$stockID
+    begT <- date_
+    endT <- as.Date(ifelse(ii==length(datelist), holdingEndT, datelist[ii+1]), "1970-01-01") # ???
+    qt <- getQuote(stocks = stocks, begT = begT, endT = endT, variables = c("pct_chg"),tableName = "QT_DailyQuote2")
+    qt <- renameCol(qt, "pct_chg", "rtn")
+    if(ii==1L){
+      R.df <- qt
+    } else {
+      R.df <- rbind(R.df, qt)
+    }
+    setTxtProgressBar(pb, ii/length(datelist))
+  }
+  close(pb)
+  # solving problems that same stocks have overlaps holding windows
+  R.df <- unique(R.df) # NA not removed
+  #
+  R.df <- reshape2::dcast(R.df, date~stockID,value.var='rtn',fill=0)
+  R <- xts::xts(R.df[,-1],R.df[,1])
+  # colnames(R) <- colnames(R.df)[-1]
+  R <- R[,sort(colnames(R))]
+
+  # double checking colnames
+  if(!all(colnames(R) == colnames(weights))) stop("weights and R, colnames not matching.")
+
+  # computations
+  re_tmp <- QUtility:::Return.backtesting(R = R,weights = weights,fee.buy = fee.buy,fee.sell = fee.sell,output=c("rtn","turnover"))
+  re <- re_tmp[["rtn"]]
+  attr(re,"turnover") <- re_tmp[["turnover"]]
+
+  # output
+  attr(re,"fee") <- c(fee_buy=fee.buy, fee_sell=fee.sell)
+  return(re)
+}
+
+
+# ----- ETS FRESH -----
+
+#' YJYZ
+#'
+#' @export
+ets.yjyz <- function(is1q=TRUE){
+  PeriodMark <- ifelse(is1q,2,3)
+  result <- queryAndClose.dbi(db.local(),
+                              query = paste0(
+                             'select stockID, InfoPublDate as date
+                             from LC_PerformanceGrowth
+                             where src="for"
+                             and ForcastType=4
+                             and PeriodMark=',PeriodMark))
+  result$date <- intdate2r(result$date)
+
+  # with in 985
+  result <- is_component(TS = result, sectorID = "EI000985")
+  result <- subset(result, is_comp == 1)
+
+  result <- result[,c("date","stockID")]
+  # double check date : passed
+  return(result)
+}
+
+#' YJYZ REFINE
+#'
+#' @export
+ets.yjyz_refine <- function(freq = c("y","q")){
+  freq = match.arg(freq)
+
+  # get mdata
+  mdata <- queryAndClose.dbi(db.local(), query = '
+                             select * from LC_PerformanceGrowth
+                             where PeriodMark=2')
+  mdata$EndDate <- intdate2r(mdata$EndDate)
+  mdata$InfoPublDate <- intdate2r(mdata$InfoPublDate)
+
+  # arrange mdata
+  mdata <- dplyr::arrange(mdata, EndDate, stockID, InfoPublDate)
+
+  # make mdata2
+  mdata2 <- mdata
+  colnames(mdata2) <- paste0("L.",colnames(mdata2))
+  mdata2 <- dplyr::rename(mdata2, stockID = L.stockID)
+
+  # merge
+  mdata$L.EndDate <- rptDate.offset(mdata$EndDate, by = -1, freq = freq)
+  result <- merge.x(x = mdata, y = mdata2, by = c("L.EndDate", "stockID"), mult = "last")
+  # (double check old data correctness : passed)
+
+  result <- subset(result, ForcastType == 4 & src == "for")
+  result <- subset(result, NP_YOY > L.NP_YOY)
+  result <- dplyr::rename(result, date = InfoPublDate)
+
+  # with in 985
+  result <- is_component(TS = result, sectorID = "EI000985")
+  result <- subset(result, is_comp == 1)
+
+  # output
+  result <- result[,c("date", "stockID")]
+  return(result)
+}
+
+#' get ETS of stocks unfreezing
+#'
+#' @return ETS object.
+#' @export
+ets.unfreeze <- function(withPercent = FALSE, research_mode = FALSE){
+    mdata <- EE_getETSfromJY(date.column = "StartDateForFloating",
+                             SheetName = "LC_SharesFloatingSchedule",
+                             key.df = data.frame("kkey"=c("Proportion1","SourceType"),
+                                                 "decode"=c(NA,1022),
+                                                 "isSE"=c(NA,NA)))
+    mdata_sub_1 <- subset(mdata, SourceType == 24 & Proportion1 > 11.39)
+    mdata_sub_2 <- subset(mdata, SourceType == 82 & Proportion1 > 83.69)
+    mdata_sub <- rbind(mdata_sub_1, mdata_sub_2)
+    mdata_sub <- dplyr::arrange(mdata_sub, date, stockID)
+
+    if(withPercent){
+      result <- subset(mdata_sub, select = c("date","stockID","Proportion1"))
+    }else{
+      result <- subset(mdata_sub, select = c("date","stockID"))
+    }
+    if(research_mode){
+      result <- subset(result, date < Sys.Date() - 10)
+    }
+    return(result)
+}
+
+#' get ETS of 002 stocks
+#'
+#' @return ETS object.
+#' @export
+ets.002 <- function(research_mode = FALSE){
+
+  mdata <- queryAndClose.odbc(db.quant(),"select * from LC_PerformanceForecast
+                              where ForecastObject=13")
+  mdata <- subset(mdata, substr(stockID,1,5) == "EQ002")
+  mdata$InfoPublDate <- intdate2r(mdata$InfoPublDate)
+  mdata$EndDate <- intdate2r(mdata$EndDate)
+
+  # arrange mdata
+  mdata <- dplyr::arrange(mdata, EndDate, stockID, InfoPublDate)
+  mdata <- dplyr::rename(mdata, date = InfoPublDate)
+  mdata <- is_component(mdata, sectorID = "EI000985")
+  mdata <- subset(mdata, is_comp == 1)
+
+  old_mdata <- gf.old_NP_YOY(mdata[,c("date","stockID")], src = "for", clear_result = FALSE)
+  colnames(old_mdata) <- paste0("L.",colnames(old_mdata))
+  old_mdata <- dplyr::rename(old_mdata, date = L.date)
+  old_mdata <- dplyr::rename(old_mdata, stockID = L.stockID)
+
+  mdata <- merge.x(mdata, old_mdata, by = c("date","stockID"))
+  mdata <- subset(mdata, (EGrowthRateFloor + EGrowthRateCeiling)/2 > L.factorscore*1.1)
+  mdata <- subset(mdata, ForcastType == 4)
+
+  # double check
+  mdata$L.InfoPublDate <- intdate2r(mdata$L.InfoPublDate)
+  mdata$L.EndDate <- intdate2r(mdata$L.EndDate)
+  mdata <- subset(mdata, date >= L.InfoPublDate & EndDate>=L.EndDate)
+
+  result <- mdata[,c("EndDate","stockID")]
+  result <- dplyr::rename(result, rptDate = EndDate)
+
+  # find reserved date
+  result <- rptDate.rsvDate(result)
+
+  if(research_mode){
+    result <- subset(result, date < Sys.Date() - 10 & date > as.Date("2007-01-01"))
+  }
+  result <- result[!duplicated(result),]
+  result <- na.omit(result)
+  return(result)
+}
+
+
+#' get ETS of leader trading stocks.
+#'
+#' @return ETS object.
+#' @export
+ets.leader_trade <- function(direction = c("buy","sell")){
+
+  direction <- match.arg(direction)
+  mdata <- queryAndClose.dbi(db.local(), "select * from EE_LeaderStockAlter")
+  shareholder_type_list <- sort(unique(mdata$shareholder_type))
+  if(length(shareholder_type_list) != 3) stop("The structure of database has changed.")
+  direction_list <- sort(unique(mdata$direction))
+  if(length(direction_list) != 2) stop("The structure of database has changed.")
+  if(direction == "buy"){
+    ind = 2
+  }else if(direction == "sell"){
+    ind = 1
+  }
+  mdata <- subset(mdata, shareholder_type == shareholder_type_list[1] & direction == direction_list[ind])
+
+  # to do ...
+  # the duration between change_end_date and announce_date
+
+  # format organizing
+  result <- mdata[,c("announcement_date","stockID"), drop = FALSE]
+  colnames(result) <- c("date","stockID")
+  result$date <- intdate2r(result$date)
+  result <- dplyr::arrange(result, date, stockID)
+  result <- unique(result)
+  return(result)
+}
+
+#' get ETS of employee plan
+#'
+#' @return ETS object
+#' @export
+ets.employeeplan <- function(){
+  mdata <- queryAndClose.odbc(db.jy(), "select * from LC_ESOP")
+  mdata$stockID <- stockID2stockID(mdata$InnerCode, from = "jy", to = "local")
+  mdata$IniInfoPublDate <- as.Date(mdata$IniInfoPublDate, tz = "Asia/Taipei")
+  mdata <- dplyr::arrange(mdata, IniInfoPublDate, stockID)
+  result <- mdata[,c("IniInfoPublDate", "stockID")]
+  colnames(result) <- c("date","stockID")
+  result <- unique(result)
+  # to do ...
+  # remove events that happen before IPO
+  result$IPO_date <- trday.IPO(result$stockID)
+  result <- subset(result, date >= IPO_date, select = c("date","stockID"))
+  return(result)
+}
+
+#' get ETS of st strategy
+#'
+#' @return ETS object
+#' @export
+ets.st <- function(){
+
+  # if(missing(begT)) begT <- as.Date("2010-01-04")
+  # if(missing(endT))
+  endT <- Sys.Date() - 1
+  endT_year <- lubridate::year(endT)
+
+  ### Wind Database
+  require(WindR)
+  WindR::w.start(showmenu = FALSE)
+  wind_data <- WindR::w.wset('carryoutspecialtreatment','startdate=2009-01-01',enddate=Sys.Date()-1)
+  wind_data <- wind_data$Data
+
+  sec_type_list <- sort(unique(wind_data$sec_type))
+  if(length(sec_type_list) != 5) stop("The structure of database has changed.")
+  wind_data <- subset(wind_data, sec_type == sec_type_list[1])
+
+  reason_list <- sort(unique(wind_data$reason))
+  if(length(reason_list) != 11) stop("The structure of database has changed.")
+  wind_data <- subset(wind_data, reason %in% reason_list[5:8])
+
+  wind_data$stockID <- stockID2stockID(wind_data$wind_code, from = "wind", to = "local")
+  wind_data$date <- WindR::w.asDateTime(wind_data$implementation_date, asdate = TRUE)
+
+  st_pool <- wind_data[,c("date","stockID")]
+  st_pool <- dplyr::arrange(st_pool, date, stockID)
+  st_pool <- getrptDate_newest(st_pool, freq = "y", mult = "last")
+  st_pool <- st_pool[,c("rptDate","stockID")]
+  ets <- data.frame()
+
+  ######## LOOPING STARTS
+  while(1){
+
+    st_pool$rptDate <- rptDate.offset(st_pool$rptDate, by = 1, freq = "y")
+
+    if(all(lubridate::year(st_pool$rptDate) > endT_year)) break
+
+    ### get forecastType infomation
+    forecast_info <- rptDate.forecastInfo(st_pool)
+    st_pool$EndDate <- st_pool$rptDate
+    st_pool <- merge.x(st_pool, forecast_info, by = c("EndDate","stockID"))
+
+    ### get is_st
+    st_pool$date <- st_pool$InfoPublDate
+    st_info <- is_st(st_pool[,c("date","stockID")])
+    st_pool$is_st <- st_info$is_st
+
+    # to do ...
+    # if st_pool EMPTY
+    ets_ <- subset(st_pool, ForcastType == 3 & is_st == TRUE, select = c("InfoPublDate", "stockID", "EndDate"))
+    if(nrow(ets_)>0){
+      ets <- rbind(ets, ets_)
+    }
+    st_pool <- subset(st_pool, is_st != FALSE, select = c("rptDate","stockID"))
+    if(nrow(st_pool) == 0) break
+  }
+  # LOOP ENDS
+
+  ### get rsv Date
+  ets <- dplyr::arrange(ets, InfoPublDate, stockID)
+  colnames(ets) <- c("date","stockID","rptDate")
+  rsvDate <- rptDate.rsvDate(ets)
+  if(nrow(rsvDate) != nrow(ets)) stop("bug in getting rsvDate")
+  ets$rsvDate <- rsvDate$date
+
+  ets <- na.omit(ets)
+  # output
+  return(ets)
+}
+
 
 # ----- ETS factor function -----
 
@@ -887,310 +1200,6 @@ getETSscore <- function(tsobj, EventSet = NULL, ee_win = 30, rollwin = 20,
     re2 <- subset(re2, select = c("date","stockID","totalscore"))
   }
   return(re2)
-}
-
-# ----- ETS FRESH -----
-
-ets.yjyz <- function(is1q=TRUE){
-  PeriodMark <- ifelse(is1q,2,3)
-  result <- queryAndClose.dbi(db.local(),
-                              query = paste0(
-                             'select stockID, InfoPublDate as date
-                             from LC_PerformanceGrowth
-                             where src="for"
-                             and ForcastType=4
-                             and PeriodMark=',PeriodMark))
-  result$date <- intdate2r(result$date)
-
-  # with in 985
-  result <- is_component(TS = result, sectorID = "EI000985")
-  result <- subset(result, is_comp == 1)
-
-  result <- result[,c("date","stockID")]
-  # double check date : passed
-  return(result)
-}
-
-ets.yjyz_refine <- function(freq = c("y","q")){
-  freq = match.arg(freq)
-
-  # get mdata
-  mdata <- queryAndClose.dbi(db.local(), query = '
-                             select * from LC_PerformanceGrowth
-                             where PeriodMark=2')
-  mdata$EndDate <- intdate2r(mdata$EndDate)
-  mdata$InfoPublDate <- intdate2r(mdata$InfoPublDate)
-
-  # arrange mdata
-  mdata <- dplyr::arrange(mdata, EndDate, stockID, InfoPublDate)
-
-  # make mdata2
-  mdata2 <- mdata
-  colnames(mdata2) <- paste0("L.",colnames(mdata2))
-  mdata2 <- dplyr::rename(mdata2, stockID = L.stockID)
-
-  # merge
-  mdata$L.EndDate <- rptDate.offset(mdata$EndDate, by = -1, freq = freq)
-  result <- merge.x(x = mdata, y = mdata2, by = c("L.EndDate", "stockID"), mult = "last")
-  # (double check old data correctness : passed)
-
-  result <- subset(result, ForcastType == 4 & src == "for")
-  result <- subset(result, NP_YOY > L.NP_YOY)
-  result <- dplyr::rename(result, date = InfoPublDate)
-
-  # with in 985
-  result <- is_component(TS = result, sectorID = "EI000985")
-  result <- subset(result, is_comp == 1)
-
-  # output
-  result <- result[,c("date", "stockID")]
-  return(result)
-}
-
-#' get ETS of stocks unfreezing
-#'
-#' @return ETS object.
-#' @export
-ets.unfreeze <- function(withPercent = FALSE, research_mode = FALSE){
-    mdata <- EE_getETSfromJY(date.column = "StartDateForFloating",
-                             SheetName = "LC_SharesFloatingSchedule",
-                             key.df = data.frame("kkey"=c("Proportion1","SourceType"),
-                                                 "decode"=c(NA,1022),
-                                                 "isSE"=c(NA,NA)))
-    mdata_sub_1 <- subset(mdata, SourceType == 24 & Proportion1 > 11.39)
-    mdata_sub_2 <- subset(mdata, SourceType == 82 & Proportion1 > 83.69)
-    mdata_sub <- rbind(mdata_sub_1, mdata_sub_2)
-    mdata_sub <- dplyr::arrange(mdata_sub, date, stockID)
-
-    if(withPercent){
-      result <- subset(mdata_sub, select = c("date","stockID","Proportion1"))
-    }else{
-      result <- subset(mdata_sub, select = c("date","stockID"))
-    }
-    if(research_mode){
-      result <- subset(result, date < Sys.Date() - 10)
-    }
-    return(result)
-}
-
-
-ets.002_new <- function(research_mode = FALSE){
-
-  mdata <- queryAndClose.odbc(db.quant(),"select * from LC_PerformanceForecast")
-  # mdata <- queryAndClose.dbi(db.local(), "select * from LC_PerformanceGrowth
-  #                            where PeriodMark = 2 ")
-
-  mdata <- subset(mdata, substr(stockID,1,5) == "EQ002")
-  mdata$InfoPublDate <- intdate2r(mdata$InfoPublDate)
-  mdata$EndDate <- intdate2r(mdata$EndDate)
-
-  # arrange mdata
-  mdata <- dplyr::arrange(mdata, EndDate, stockID, InfoPublDate)
-
-  # find eq002 that meets the requirements
-  mdata2 <- mdata
-  colnames(mdata2) <- paste0("L.", colnames(mdata2))
-  mdata2 <- dplyr::rename(mdata2, stockID = L.stockID)
-
-  # merge
-  mdata$L.EndDate <- rptDate.offset(mdata$EndDate, by = -1, freq = "q")
-
-  merged_data <- merge.x(mdata, mdata2, by = c("stockID", "L.EndDate"), mult = "last")
-
-  # bigger NP
-  # merged_data <- subset(merged_data, NP_YOY > L.NP_YOY*1.1 & ForcastType == 4)
-  merged_data <- subset(merged_data, EGrowthRateCeiling > L.EGrowthRateCeiling & EGrowthRateFloor > L.EGrowthRateFloor & ForcastType == 4 & ForecastObject == 10)
-  merged_data$rptDate <- rptDate.offset(merged_data$EndDate, by = 1, freq = "q")
-  result <- merged_data[,c("rptDate","stockID")]
-
-  # find reserved date
-  result <- rptTS.getFin_ts(result, funchar ='"ReservedDate",report(128002,RDate),
-                            "FirstChangedDate",report(128003,RDate),
-                            "SecondChangedDate",report(128004,RDate),
-                            "ThirdChangedDate",report(128005,RDate)')
-  result$PredictedDate <- result$ReservedDate
-  ind_ <- result$FirstChangedDate > 0
-  result$PredictedDate[ind_] <- result$FirstChangedDate[ind_]
-  ind_ <- result$SecondChangedDate > 0
-  result$PredictedDate[ind_] <- result$SecondChangedDate[ind_]
-  ind_ <- result$ThirdChangedDate > 0
-  result$PredictedDate[ind_] <- result$ThirdChangedDate[ind_]
-  result <- result[, c("PredictedDate","stockID")]
-  result <- dplyr::rename(result, date = PredictedDate)
-  result$date <- intdate2r(result$date)
-  result$date <- trday.nearest(result$date, dir = 1)
-  if(research_mode){
-    result <- subset(result, date < Sys.Date() - 10)
-  }
-  result <- result[!duplicated(result),]
-  return(result)
-}
-
-# ----- ETS CORE -----
-
-#' get ETS of leader buying stocks.
-#'
-#' @return ETS object.
-#' @export
-ets.leaderbuy <- function(datasrc = c("local")){
-  con <- QDataGet::db.local()
-  qr <- "select * from EE_LeaderStockAlter"
-  tmpdat <- DBI::dbGetQuery(con,qr)
-  DBI::dbDisconnect(con)
-  tmpdat <- subsetCol(tmpdat, "shareholder_type" ,3)
-  tmpdat <- subsetCol(tmpdat, "direction", 5)
-  tmpdat2 <- subset(tmpdat, select = c("announcement_date","stockID"))
-  colnames(tmpdat2) <- c("date","stockID")
-  tmpdat2$date <- QUtility::intdate2r(tmpdat2$date)
-  tmpdat2 <- dplyr::arrange(tmpdat2, date, stockID)
-  return(tmpdat2)
-}
-
-
-#' get ETS of EQ002 forecast strategy.
-#'
-#' @return ETS object.
-#' @export
-ets.EQ002_forecast <- function(ahead_win = 20, withlatest = TRUE){
-
-  con <- db.local()
-  tmpdat <- dbGetQuery(con, "select * from EE_ForecastAndReport")
-  dbDisconnect(con)
-
-  tmpdat <- subset(tmpdat, substr(stockID,1,5) == "EQ002")
-  ind <- (tmpdat$EGrowthRateFloor > tmpdat$L.EGrowthRateFloor) & (tmpdat$EGrowthRateCeiling > tmpdat$L.EGrowthRateCeiling)
-  ind[is.na(ind)] <- FALSE
-  tmpdat$flag <- 0
-  tmpdat$flag[ind] <- tmpdat$flag[ind] + 1
-
-  tmpdat_ <- subset(tmpdat, flag == 1 & ForcastType == 4 & ForecastObject == 10)
-  tmpdat_ <- dplyr::arrange(tmpdat_, stockID, enddate, date)
-  tmpdat_ <- tmpdat_[!duplicated(tmpdat_[,c("stockID","enddate")]),]
-
-  re <- tmpdat_[,c("stockID","FirstReservedDate")]
-  colnames(re) <- c("stockID","date")
-  tmpdat_$FirstChangeDate <- fillna(tmpdat_$FirstChangeDate, "zero")
-  tmpdat_$SecondChangeDate <- fillna(tmpdat_$SecondChangeDate, "zero")
-  tmpdat_$ThirdChangeDate <- fillna(tmpdat_$ThirdChangeDate, "zero")
-  re$date[tmpdat_$FirstChangeDate > 0] <- tmpdat_$FirstChangeDate[tmpdat_$FirstChangeDate > 0]
-  re$date[tmpdat_$SecondChangeDate > 0] <- tmpdat_$SecondChangeDate[tmpdat_$SecondChangeDate > 0]
-  re$date[tmpdat_$ThirdChangeDate > 0] <- tmpdat_$ThirdChangeDate[tmpdat_$ThirdChangeDate > 0]
-
-  if(withlatest){
-    re <- subset(re, date > 20070000)
-  }else{
-    re <- subset(re, date > 20070000 & date < 20170000)
-  }
-
-  re$date <- intdate2r(re$date)
-  re <- re[!duplicated(re),]
-  re$date <- trday.nearby(re$date, -ahead_win)
-  re <- re[,c("date","stockID")]
-  re <- dplyr::arrange(re, date, stockID)
-  return(re)
-}
-
-
-# ----- ETS extra -----
-
-#' get ETS of employee plan
-#'
-#' @return ETS object
-#' @export
-ets.employeeplan <- function(){
-  con <- QDataGet::db.local()
-  qr <- "select * from EE_EmployeePlan"
-  tmpdat <- DBI::dbGetQuery(con,qr)
-  # as.data.frame(table(tmpdat$fund_source))
-  mark <- summary(tmpdat$shares_ratio)[[3]]
-  tmpdat2 <- subset(tmpdat, shares_ratio >= mark ,select = c("preplan_date","stockID"))
-  colnames(tmpdat2) <- c("date","stockID")
-  tmpdat2$date <- QUtility::intdate2r(tmpdat2$date)
-  return(tmpdat2)
-}
-
-#' get ETS of forecast report
-#'
-#' @return ETS object
-#' @export
-ets.forecast <- function(season = c("all",'1','2','3','4'), pool=c("002","300","zhuban","all")){
-  con <- db.local()
-  season <- match.arg(season)
-  pool <- match.arg(pool)
-  qr <- paste("select stockID, enddate, date, ForcastType, EGrowthRateFloor, EProfitFloor, ActualDate
-              from LC_ForecastAndReport")
-  res <- dbGetQuery(con, qr)
-  res <- subset(res, ForcastType == 4)
-  if(season == '1'){
-    res <- subset(res, substr(enddate, 5,8) == "0331")
-  }else if( season == '2'){
-    res <- subset(res, substr(enddate, 5,8) == "0630")
-  }else if( season == '3'){
-    res <- subset(res, substr(enddate, 5,8) == "0930")
-  }else if( season == '4'){
-    res <- subset(res, substr(enddate, 5,8) == "1231")
-  }
-  res <- na.omit(res)
-  if( pool == "002"){
-    res <- subset(res, substr(stockID, 1, 5) == "EQ002")
-  }else if( pool == "300"){
-    res <- subset(res, substr(stockID, 1, 5) == "EQ300")
-  }else if( pool == "zhuban"){
-    res <- subset(res, substr(stockID, 1, 5) != "EQ002")
-    res <- subset(res, substr(stockID, 1, 5) != "EQ300")
-  }
-  datelist <- sort(unique(res$enddate))
-  finalres <- list()
-  s1 <- 0
-  s2 <- 0
-  for( i in 1:length(datelist)){
-    tmpres <- subset(res, enddate == datelist[i])
-    if(nrow(tmpres) < 20) next
-    tmpres_ <- subset(tmpres, EGrowthRateFloor >= s1 & EProfitFloor >= s2)
-    finalres[[i]] <- tmpres_[,c("date","stockID")]
-    colnames(finalres[[i]]) <- c("date","stockID")
-    s1 <- quantile(tmpres$EGrowthRateFloor, 0.25)
-    s2 <- quantile(tmpres$EProfitFloor, 0.25)
-  }
-  finalres2 <- data.table::rbindlist(finalres)
-  finalres2$date <- QUtility::intdate2r(finalres2$date)
-  finalres2 <- na.omit(finalres2)
-  return(finalres2)
-}
-
-
-#' get ETS of stocks with low forecasting
-#'
-#' @return ETS object.
-#' @export
-ets.low_F_NP <- function(){
-  begT <- as.Date("2005-01-31")
-  endT <- Sys.Date()-1
-  RebDates <- RFactorModel::getRebDates(begT,endT)
-  ts <- RFactorModel::getTS(RebDates,"EI000985")
-  tsf <- QFactorGet::gf.F_NP_chg(ts,span='w4')
-  tmp <- na.omit(tsf)
-  tmp <- tmp[tmp$factorscore<(-1),]
-  ts2 <- subset(tmp,select=c("date","stockID"))
-  return(ts2)
-}
-
-#' get ETS of leader selling stocks.
-#'
-#' @return ETS object.
-#' @export
-ets.leadersell <- function(){
-  con <- QDataGet::db.local()
-  qr <- "select * from EE_LeaderStockAlter"
-  tmpdat <- DBI::dbGetQuery(con,qr)
-  DBI::dbDisconnect(con)
-  tmpdat <- subsetCol(tmpdat, "shareholder_type" ,3)
-  tmpdat <- subsetCol(tmpdat, "direction", 4)
-  tmpdat2 <- subset(tmpdat, select = c("announcement_date","stockID"))
-  colnames(tmpdat2) <- c("date","stockID")
-  tmpdat2$date <- QUtility::intdate2r(tmpdat2$date)
-  tmpdat2 <- dplyr::arrange(tmpdat2, date, stockID)
-  return(tmpdat2)
 }
 
 # ----- LCDB.build & update -----
@@ -1537,81 +1546,6 @@ lcdb.update.EE_LeaderStockAlter <- function(){
   }
 }
 
-#' lcdb.build.EE_employeeplan
-#'
-#' @export
-#' @examples
-#' lcdb.build.EE_employeeplan()
-lcdb.build.EE_employeeplan <- function(){
-  require(WindR)
-  w.start(showmenu = FALSE)
-  result <- data.frame()
-  begT <- as.Date("2014-01-01")
-  endT <- Sys.Date() - 1
-  w_wset_data<-w.wset('esop',startdate=begT,enddate=endT)
-  if(w_wset_data$ErrorCode == 0){
-    result <- w_wset_data$Data
-    result <- subset(result, select = -CODE)
-    result <- renameCol(result, "wind_code", "stockID")
-    result$stockID <- stockID2stockID(result$stockID, from = "wind", to = "local")
-    result$preplan_date <- rdate2int(w.asDateTime(result$preplan_date, asdate = T))
-    result$fellow_smtganncedate <- rdate2int(w.asDateTime(result$fellow_smtganncedate, asdate = T))
-    result <- result[!is.na(result$stockID),]
-    result <- dplyr::arrange(result, preplan_date, stockID)
-    con <- db.local()
-    RSQLite::dbWriteTable(con,'EE_EmployeePlan',result,overwrite=T,append=F,row.names=F)
-    RSQLite::dbDisconnect(con)
-    return("Done!")
-  }else{
-    return(w_wset_data)
-  }
-}
-
-#' lcdb.update.EE_employeeplan
-#'
-#' @export
-#' @examples
-#' library(WindR)
-#' lcdb.update.EE_employeeplan()
-lcdb.update.EE_employeeplan <- function(){
-  # begT
-  con <- db.local()
-  begT <- RSQLite::dbGetQuery(con, "select max(preplan_date) from EE_EmployeePlan")
-  RSQLite::dbDisconnect(con)
-  begT <- intdate2r(begT)
-
-  # endT
-  endT <- Sys.Date() - 1
-
-  # main codes
-  if(begT >= endT){
-    return("Done!")
-  }else{
-    begT <- begT + 1
-    require(WindR)
-    w.start(showmenu = F)
-    w_wset_data<-w.wset('esop',startdate=begT,enddate=endT)
-    if(w_wset_data$ErrorCode != 0) return(tmp)
-    result <- w_wset_data$Data
-    if(nrow(result) == 0){
-      return("Done!")
-    }else{
-      # res <- tmp
-      result <- subset(result, select = -CODE)
-      result <- renameCol(result, "wind_code", "stockID")
-      result$stockID <- stockID2stockID(result$stockID, from = "wind", to = "local")
-      result$preplan_date <- rdate2int(w.asDateTime(result$preplan_date, asdate = T))
-      result$fellow_smtganncedate <- rdate2int(w.asDateTime(result$fellow_smtganncedate, asdate = T))
-      result <- result[!is.na(result$stockID),]
-      result <- dplyr::arrange(result, preplan_date, stockID)
-      con <- db.local()
-      RSQLite::dbWriteTable(con,'EE_EmployeePlan',result,overwrite=F,append=T,row.names=F)
-      RSQLite::dbDisconnect(con)
-      return("Done!")
-    }
-  }
-}
-
 #' lcdb.build.EE_ForecastAndReport
 #'
 #' @export
@@ -1760,240 +1694,50 @@ lcdb.build.EE_pool <- function(){
 
 # ----- Daily Report Part -----
 
-#' ST strategy initiate
-#'
-#' @param begT
-#' @param endT
-#' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
-#' @return A list, containing rtn and port.
-#' @export
-#' @examples
-#' st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"))
-strategy_st_init <- function(begT,endT,wgt_limit = 0.1){
-  ######## input
-  if(missing(begT)){begT <- as.Date("2010-01-04")}
-  if(missing(endT)){endT <- Sys.Date()-1}
-  ######## prep
-  # rpt sq
-  sq1 <- seq(2000, 2017)
-  sq2 <- c('0331','0630','0930','1231')
-  resq <- c()
-  for(i in sq1){resq <- c(resq, paste0(i,sq2))}
-  resq <- as.integer(resq)
-  # db
-  tmpdat <- queryAndClose.dbi(db.local(), "select * from EE_ForecastAndReport")
-  # rough filter to speed up
-  tmpdat <- subset(tmpdat, lubridate::year(begT) - 1 <= as.integer(substr(enddate,1,4)))
-
-  # IsST
-  TS_ <- tmpdat[,c("enddate","stockID")]
-  colnames(TS_) <- c("date","stockID")
-  TS_$date <- intdate2r(TS_$date)
-  tmpre <- TS.getTech_ts(TS_,"IsST_()",varname = "flag")
-  tmpdat$flag <- tmpre$flag
-  # db2
-  require(WindR)
-  WindR::w.start(showmenu = FALSE)
-  w_wset_data <- WindR::w.wset('carryoutspecialtreatment','startdate=2009-01-01',enddate=Sys.Date()-1)
-  raw_dat <- w_wset_data$Data
-  raw_dat$implementation_date <- WindR::w.asDateTime(raw_dat$implementation_date, asdate = TRUE)
-  raw_dat <- subset(raw_dat, sec_type == sort(unique(raw_dat$sec_type))[1])
-  reason_case <- sort(unique(raw_dat$reason))
-  qualified_st <- subset(raw_dat, reason %in% reason_case[5:8])
-  qualified_stockID <- stockID2stockID(qualified_st$wind_code, from = "wind", to = "local")
-  qualified_stockID <- unique(qualified_stockID)
-  # subset
-  tmpdat2 <- subset(tmpdat, flag == 1 & ForcastType == 3 & substr(enddate,5,8) == "1231")
-  tmpdat3 <- subset(tmpdat2, stockID %in% qualified_stockID)
-  # endT column
-  tmpdat3$endT <- tmpdat3$FirstReservedDate
-  ind1 <- tmpdat3$FirstChangeDate > 0
-  ind1[is.na(ind1)] <- FALSE
-  tmpdat3$endT[ind1] <- tmpdat3$FirstChangeDate[ind1]
-  ind2 <- tmpdat3$SecondChangeDate > 0
-  ind2[is.na(ind2)] <- FALSE
-  tmpdat3$endT[ind2] <- tmpdat3$SecondChangeDate[ind2]
-  ind3 <- tmpdat3$ThirdChangeDate > 0
-  ind3[is.na(ind3)] <- FALSE
-  tmpdat3$endT[ind3] <- tmpdat3$ThirdChangeDate[ind3]
-  # fix duplicated case
-  for(i in 1:nrow(tmpdat3)){
-    stockID_ <- tmpdat3$stockID[i]
-    enddate_ <- tmpdat3$enddate[i]
-    ind_ <- match(enddate_, resq)
-    enddate_ <- resq[ind_ - 1]
-    re_ <- subset(tmpdat, stockID == stockID_ & enddate == enddate_)
-    lasttomatch_ <- re_$ActualDate[1]
-    if(is.na(lasttomatch_)) next
-    if(tmpdat3$date[i] == lasttomatch_){
-      tmpdat3$endT[i] <- NA
-    }
-  }
-  tmpdat3 <- tmpdat3[,c("stockID","enddate","date","endT")]
-  tmpdat3 <- na.omit(tmpdat3)
-  tmpdat3 <- tmpdat3[!duplicated(tmpdat3[,c("stockID","enddate")]),]
-  ######### back test
-  holding_case <- tmpdat3[,c("date","endT","stockID")]
-  holding_case <- na.omit(holding_case)
-  colnames(holding_case) <- c("begT","endT","stockID")
-  holding_case$begT <- intdate2r(holding_case$begT)
-  holding_case$endT <- intdate2r(holding_case$endT)
-
-  datelist <- getRebDates(begT, endT, rebFreq = "day")
-  rtn <- data.frame()
-  port <- vector("list", length = length(datelist))
-  for(i in 1:length(datelist)){
-    TD_ <- datelist[i]
-    pool_ <- subset(holding_case, begT <= TD_ & endT >= TD_, select = "stockID")
-    if(nrow(pool_) == 0){
-      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
-      rtn <- rbind(rtn, rtn_)
-      next
-    }
-    pool_$date <- TD_
-    pool_ <- pool_[,c("date","stockID")]
-    pool_ <- TS.getTech_ts(pool_,"IsST_()",varname = "flag")
-    pool_ <- subset(pool_, flag > 0)
-    if(nrow(pool_) == 0){
-      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
-      rtn <- rbind(rtn, rtn_)
-      next
-    }
-    pool_ <- is_priceLimit(pool_, lim = c(-4.9,4.9), priceType = "open")
-    if(sum(pool_$overlim) > 0){
-      ind_ <- (1:nrow(pool_))[pool_$overlim]
-      if(i == 1){
-        ind2_ <- rep(FALSE, length(ind_)) # WARININGS
-      }else if(is.null(port[[i-1]])){
-        ind2_ <- rep(FALSE, length(ind_)) # WARNINGS
-      }else{
-        ind2_ <- pool_$stockID[ind_] %in% port[[i-1]]$stockID
-      }
-      if(sum(!ind2_) > 0){
-        ind3_ <- ind_[!ind2_]
-        pool_$overlim[ind3_] <- NA
-      }
-    }
-    pool_ <- na.omit(pool_)
-    if(nrow(pool_) == 0){
-      rtn_ <- data.frame("date" = TD_, "rtn" = 0)
-      rtn <- rbind(rtn, rtn_)
-      next
-    }
-    row.names(pool_) <- NULL
-    pool_$wgt <- 1/nrow(pool_)
-    pool_$wgt[pool_$wgt > wgt_limit] <- wgt_limit
-    port[[i]] <- pool_
-    TSR_ <- TS.getTech(pool_, variables = "pct_chg")
-    TSR_$pct_chg <- fillna(TSR_$pct_chg, method = "zero")
-    rtn_ <- data.frame("date" = TD_, "rtn" = sum(TSR_$pct_chg * TSR_$wgt))
-    rtn <- rbind(rtn, rtn_)
-  }
-  port2 <- data.table::rbindlist(port)
-  st_strat_relist <- list("rtn" = rtn, "port" = port2)
-  # output
-  return(st_strat_relist)
-}
-
-
-#' ST strategy update
-#'
-#' @description update the st dataset to the latest date(sys.date - 1).
-#' @param wgt_limit Default 0.1, the maximum weight for one individual stock.
-#' @return A list, containing rtn and port.
-#' @export
-#' @examples
-#' st_strat_relist <- strategy_st_init(begT = as.Date("2010-01-04"), endT = as.Date("2015-04-23"), save_result = TRUE)
-#' st_strat_relist <- strategy_st_upd(st_strat_relist)
-strategy_st_upd <- function(st_strat_relist,wgt_limit = 0.1){
-  old_rtn <- st_strat_relist$rtn
-  old_port2 <- st_strat_relist$port
-  # extract date
-  begT <- tail(old_port2$date,1)
-  endT <- Sys.Date()-1
-  endT <- trday.nearest(endT)
-  if(begT >= endT) {return("Done!")}
-  begT <- trday.nearby(begT,1)
-  new_relist <- strategy_st_init(begT, endT, wgt_limit = wgt_limit)
-  new_rtn <- new_relist$rtn
-  new_port2 <- new_relist$port
-  # combine
-  rtn <- rbind(old_rtn,new_rtn)
-  port2 <- rbind(old_port2, new_port2)
-  st_strat_relist <- list("rtn" = rtn, "port" = port2)
-  # output
-  return(st_strat_relist)
-}
-
-
-
 #' rpt.unfroz_show
 #'
 #' @export
-rpt.unfroz_show <- function(ob_win=10){
+rpt.unfreeze_show <- function(ob_win=10){
 
-  ets0 <- ets.unfroz(withP = TRUE)
-  colnames(ets0) <- c("unfroz_date", "stockID", "proportion")
-  ets0 <- subset(ets0, unfroz_date >= trday.nearby(Sys.Date(),-1))
+  ets0 <- ets.unfreeze(withPercent = TRUE)
+  colnames(ets0) <- c("unfreeze_date", "stockID", "proportion")
+  ets0$begT <- trday.nearby(ets0$unfreeze_date, -ob_win)
 
-  TD <- Sys.Date()
-  ets0$begT <- trday.nearby(ets0$unfroz_date, -ob_win)
-  ets0 <- subset(ets0, begT <= Sys.Date())
-  ets0$endT <- trday.nearby(TD,-1)
-  temp_ <- getPeriodrtn(stockID = ets0$stockID, begT = trday.nearby(ets0$begT,-1), endT = ets0$endT)
-  temp_$begT <- trday.nearby(temp_$begT,1)
-  temp_ <- renameCol(temp_, "periodrtn", "periodrtn_stock")
-  temp_$indexID <- stockID2indexID(stockID = temp_$stockID)$indexID
-  temp_$periodrtn_index <- 0
-  for( i in 1:nrow(temp_)){
-    if(temp_$begT[i] > temp_$endT[i]) next
-    rtn <- getIndexQuote(stocks = temp_$indexID[i], begT = temp_$begT[i], endT = temp_$endT[i], variables = "pct_chg", datasrc = "jy")
-    temp_$periodrtn_index[i] <- sum(rtn$pct_chg)
+  # for the new stocks that are just included in the table, do not consider rtn
+  TD <- trday.nearest(Sys.Date(), 1)
+  ets0 <- subset(ets0, TD >= begT & TD <= unfreeze_date )
+  ets0$endT <- trday.nearby(TD, -1) # the last trday with existing trading data
+
+  # getPeriodrtn note : begT same as endT, periodrtn 0
+  # begT should be one day before endT, get endT rtn
+  rtn_data <- getPeriodrtn(stockID = ets0$stockID, begT = trday.nearby(ets0$begT,-1), endT = ets0$endT)
+  # do it later # rtn_data$begT <- trday.nearby(rtn_data$begT,1)
+  # make it understandable on the table, and match the data in ets0
+  rtn_data <- renameCol(rtn_data, "periodrtn", "periodrtn_stock")
+
+  # get index rtn
+  rtn_data$indexID <- stockID2indexID(stockID = rtn_data$stockID)$indexID
+  rtn_data$periodrtn_index <- 0
+  for( i in 1:nrow(rtn_data)){
+    if(rtn_data$begT[i] == rtn_data$endT[i]) next
+    close_data <- getIndexQuote(stocks = rtn_data$indexID[i], begT = rtn_data$begT[i], endT = rtn_data$endT[i], variables = "close", datasrc = "jy")
+    pct_chg <- (close_data$close[nrow(close_data)] - close_data$close[1])/close_data$close[1]
+    rtn_data$periodrtn_index[i] <- pct_chg
   }
-  re <- merge(ets0, temp_, by = c("stockID","begT","endT"))
-  re <- dplyr::select(re, -endT)
-  re$periodrtn_stock <- fillna(re$periodrtn_stock, "zero")
-  re$periodrtn_stock <- round(re$periodrtn_stock, 4)
-  re$proportion <- round(re$proportion, 2)
-  re <- dplyr::arrange(re, begT)
-  return(re)
+  # adjust rtn_data begT back
+  rtn_data$begT <- trday.nearby(rtn_data$begT, 1L)
+
+  # merge
+  result <- merge(ets0, rtn_data, by = c("stockID","begT","endT"))
+
+  # format and output
+  result$endT <- NULL
+  result$periodrtn_stock[is.na(result$periodrtn_stock)] <- 0
+  # result$periodrtn_stock <- round(result$periodrtn_stock, 4)
+  # result$proportion <- round(result$proportion, 2)
+  result <- dplyr::arrange(result, begT, stockID)
+  return(result)
 }
-
-
-#' rpt.EQ002_show
-#'
-#' @export
-rpt.EQ002_show <- function(begT=as.Date("2013-01-04"),
-                           endT=Sys.Date()-1,
-                           ob_win = 20, wgtmax = 0.05){
-  datelist <- getRebDates(begT,endT,rebFreq = "day")
-  ets <- ets.EQ002_forecast(withlatest = TRUE, ahead_win = ob_win)
-  ets$enddate <- trday.nearby(ets$date, ob_win)
-  port <- list()
-  rtn <- data.frame()
-  for( i in 1:length(datelist)){
-    TD <- datelist[i]
-    TS_ <- subset(ets, date <= TD & enddate >= TD, select = stockID)
-    if(nrow(TS_)==0) next
-    TS_$date <- datelist[i]
-    TSR_ <- TS.getTech(TS_,variables = "pct_chg")
-    TSR_$wgt <- 1/nrow(TS_)
-    TSR_$wgt[TSR_$wgt > wgtmax] <- wgtmax
-    TSR_$pct_chg <- fillna(TSR_$pct_chg, "zero")
-    port[[i]] <- TSR_
-    rtn_ <- sum(TSR_$pct_chg * TSR_$wgt)
-    rtndf_ <- data.frame("date" = TD, "rtn" = rtn_)
-    rtn <- rbind(rtn, rtndf_)
-  }
-  # rtn
-  rtn$rtn <- fillna(rtn$rtn,"zero")
-  re <- xts::as.xts(rtn$rtn, order.by = rtn$date)
-  # output
-  port <- data.table::rbindlist(port)
-  relist <- list("rtn" = re, "port" = port)
-  return(relist)
-}
-
 
 #' return daily emotion report
 #'
@@ -2002,14 +1746,14 @@ rpt.EQ002_show <- function(begT=as.Date("2013-01-04"),
 #' @return data frame
 #' @export
 rpt.dailyemotion <- function(begT, endT){
-  ######## Pool
+  # pool
   datelist <- getRebDates(begT, endT, rebFreq = "day")
   stockpool <- getIndexComp("EI000985", endT = datelist) # vec
   total_num <- nrow(stockpool)
   stockpool <- is_suspend(TS = stockpool)
   stockpool <- TS.getTech_ts(stockpool, funchar = c("IsST_()","StockGoMarketDays()"),varname = c("st","days"))
 
-  ######## LOOP
+  # loop
   stockpoolrecord <- data.frame()
   finalre <- data.frame()
   for(i in 1:length(datelist)){
@@ -2023,43 +1767,51 @@ rpt.dailyemotion <- function(begT, endT){
     qr0 <- paste0(qr0,TD_0_ts,",")
     qr1 <- c("StockIsZt(","StockIsZt2(","StockIsDt(","StockIsDt2(","StockHigh4(","StockLow4(",qr0)
     qr2 <- paste0(qr1,TD_ts,")")
-    qr2 <- c(qr2,"IsDtpl(5,30,60,120)","IsKtpl(5,30,60,120)")
-    stockpool_ <- TS.getTech_ts(stockpool_, funchar = qr2, varname = c("zt","yzzt","dt","yzdt","high","low","sixtyhigh","sixtylow","dtpl","ktpl"))
+    qr2 <- c(qr2,"Close()","MA(Close(),5)","MA(Close(),10)","MA(Close(),20)","MA(Close(),60)","MA(Close(),120)","MA(Close(),250)")
+    stockpool_ <- TS.getTech_ts(stockpool_, funchar = qr2, varname = c("zt","yzzt","dt","yzdt","high","low","sixtyhigh","sixtylow","close","ma5","ma10","ma20","ma60","ma120","ma250"))
 
     re <- stockpool_
     stockpoolrecord <- rbind(stockpoolrecord, stockpool_)
     bottom_re <- subset(re, st == 0 & sus == FALSE & days > 120 & yzzt == 0 & yzdt == 0)
     bottom_num <- nrow(bottom_re)
 
-    ######## zt & dt
+    # zt & dt
     dat_zt <- subset(bottom_re, zt == 1)
     zt_num <- nrow(dat_zt)
 
     dat_dt <- subset(bottom_re, dt == 1)
     dt_num <- nrow(dat_dt)
 
-    ####### 60 days best
+    # 60 days best
     dat_sixtyhigh <- subset(bottom_re, high == sixtyhigh)
     sixtyhigh_num <- nrow(dat_sixtyhigh)
 
     dat_sixtylow <- subset(bottom_re, low == sixtylow)
     sixtylow_num <- nrow(dat_sixtylow)
 
-    ######## MA arranging
-    dat_dtpl <- subset(bottom_re, dtpl == 1)
+    # MA arranging
+    dat_dtpl <- subset(bottom_re, ma5>ma10 & ma10>ma20 & ma20>ma60 & ma60>ma120 & ma120>ma250)
     dtpl_num <- nrow(dat_dtpl)
 
-    dat_ktpl <- subset(bottom_re, ktpl == 1)
+    dat_ktpl <- subset(bottom_re, ma5<ma10 & ma10<ma20 & ma20<ma60 & ma60<ma120 & ma120<ma250)
     ktpl_num <- nrow(dat_ktpl)
 
-    ######## output
+    # MA arranging2
+    dat_ma5 <- subset(bottom_re, close > ma5)
+    ma5_num <- nrow(dat_ma5)
+
+    dat_ma20 <- subset(bottom_re, close > ma20)
+    ma20_num <- nrow(dat_ma20)
+
+    # output
     finalre_ <- data.frame("date" = TD_, "obs" = bottom_num, "zt" = zt_num, "dt" = dt_num,
-                           "sixtyhigh" = sixtyhigh_num, "sixtylow" = sixtylow_num, "dtpl" = dtpl_num, "ktpl" = ktpl_num)
+                           "sixtyhigh" = sixtyhigh_num, "sixtylow" = sixtylow_num,
+                           "dtpl" = dtpl_num, "ktpl" = ktpl_num,
+                           "aboveMA5" = ma5_num, "aboveMA20" = ma20_num)
     finalre <- rbind(finalre, finalre_)
   }
   return(finalre)
 }
-
 
 #' RSRS timing
 #'
@@ -2136,205 +1888,37 @@ rsrs_timing <- function(indexID = "EI000300",
       finalre$NV[i] <- finalre$NV[i-1]
     }
   }
-  rtn <- as.xts(x = finalre$rtn, order.by = finalre$date)
+  rtn <- xts::as.xts(x = finalre$rtn, order.by = finalre$date)
   relist <- list("finalre" = finalre, "rtn" = rtn)
   return(relist)
 }
 
 
-# ----- Tempararoy Wasted -----
-
-#' plug in ets and return frequency of certain period.
+#' rpt.EQ002_show
 #'
-#' @param ets A ets object.
-#' @param win1 The days window before the event to calculate the frequency.
-#' @return etsobj
-etstick <- function(ets, win1 = 20){
-  begT <- min(ets$date)
-  endT <- max(ets$date)
-  date <- QDataGet::trday.get(begT, endT)
-  fillindate <- data.frame(date, stockID = "None")
-  tmp <- rbind(ets, fillindate)
-  tmp <- dplyr::arrange(tmp, date, stockID)
-  tmp <- reshape2::dcast(tmp, formula = date~stockID)
-  extra <- tmp[1:(win1-1),]
-  extra[,-1] <- 0
-  extra[,1] <- tmp[1,1]-(win1-1):1
-  tmp <- rbind(extra,tmp)
-  tmp <- xts::xts(tmp[,-1], order.by = tmp[,1])
-  re <- zoo::rollsum(tmp, win1, align = "right")
-  date <- zoo::index(re)
-  re2 <- as.data.frame(re)
-  re2 <- cbind(date, re2)
-  re3 <- reshape2::melt(re2, id = 'date')
-  colnames(re3) <- c("date","stockID","ticks")
-  re4 <- merge(ets, re3, by=c("date","stockID"))
-  re4 <- dplyr::arrange(re4, date, stockID)
-  re4 <- re4[!duplicated(re4),]
-  return(re4)
+#' @export
+rpt.002_show <- function(begT=as.Date("2013-01-04"),
+                         endT=Sys.Date()-1,
+                         ob_win = 20, wgtmax = 0.05){
+  datelist <- getRebDates(begT,endT,rebFreq = "day")
+  ets <- ets.002()
+  ets <- dplyr::rename(ets, date_end = date)
+  ets$date <- trday.nearby(ets$date_end, by = -ob_win)
+
+  ets <- subset(ets, date_end > begT)
+  ets <- subset(ets, date < endT)
+
+  result_list <- ets.port_backtest(ets, wgt_limit = wgtmax)
+  return(result_list)
 }
 
-
-#' plug in ets and return accumulated value of certain varialbe.
+#' rpt.st_show
 #'
-#' @param etsobj An etsobj.
-#' @param win1 The days window before the event to calculate the accumulated value.
-#' @return etsobj
-etstack <- function(etsobj, win1 = 20){
-  begT <- min(etsobj$date)
-  endT <- max(etsobj$date)
-  date <- QDataGet::trday.get(begT,endT)
-  colnames(etsobj) <- c("date","stockID","var")
-  fillindate <- data.frame(date, stockID = "None", var = 0)
-  tmp <- rbind(etsobj, fillindate)
-  tmp <- dplyr::arrange(tmp, date, stockID)
-  tmp <- reshape2::dcast(tmp, formula = date~stockID, fun.aggregate = sum, value.var = "var")
-  extra <- tmp[1:(win1-1),]
-  extra[,-1] <- 0
-  extra[,1] <- tmp[1,1]-(win1-1):1
-  tmp <- rbind(extra,tmp)
-  tmp[is.na(tmp)] <- 0
-  tmp <- xts::xts(tmp[,-1], order.by = tmp[,1])
-  re <- zoo::rollsum(tmp, win1, align = "right")
-  date <- zoo::index(re)
-  re2 <- as.data.frame(re)
-  re2 <- cbind(date, re2)
-  re3 <- reshape2::melt(re2, id = 'date')
-  colnames(re3) <- c("date","stockID","tacks")
-  re4 <- merge(etsobj[,c("date","stockID")], re3, by=c("date","stockID"))
-  re4 <- dplyr::arrange(re4, date, stockID)
-  re4 <- re4[!duplicated(re4),]
-  return(re4)
+#' @export
+rpt.st_show <- function(){
+  ets <- ets.st()
+  ets <- dplyr::rename(ets, date_end = rsvDate)
+  ets <- ets[,c("date","stockID","date_end")]
+  result_list <- ets.port_backtest(ets, wgt_limit = 0.05)
+  return(result_list)
 }
-
-
-#' adjusted subset function for Chinese string.
-#'
-#' @param tmpdat The data frame.
-#' @param colchar The column names.
-#' @param subsetcode The code for the subset that is going to be filtered.
-#' @return data frame subset.
-subsetCol <- function(tmpdat, colchar, subsetcode){
-  tmpdat <- renameCol(tmpdat, colchar, "char")
-  tmpdat <- merge(tmpdat, EE_CT, by = "char", all.x = TRUE)
-  tmpdat <- subset(tmpdat, code == subsetcode)
-  tmpdat <- tmpdat[,setdiff(colnames(tmpdat), c("char","code"))]
-  return(tmpdat)
-}
-
-
-#' get ETS of leader selling stocks a lot within a few times.
-#'
-#' @return ETS object.
-ets.leadersell_largesell <- function(){
-  con <- QDataGet::db.local()
-  qr <- "select * from EE_LeaderStockAlter"
-  tmpdat <- dbGetQuery(con,qr)
-  dbDisconnect(con)
-  tmpdat <- subsetCol(tmpdat, "shareholder_type" ,3)
-  tmpdat <- subsetCol(tmpdat, "direction", 4)
-
-  tmpdat2 <- subset(tmpdat, select = c("announcement_date","stockID"))
-  colnames(tmpdat2) <- c("date","stockID")
-  tmpdat2$date <- QUtility::intdate2r(tmpdat2$date)
-  tmpdat2 <- dplyr::arrange(tmpdat2, date, stockID)
-  tmpdat3 <- etstick(tmpdat2, 20)
-
-  tmpdat2_v <- subset(tmpdat, select = c("announcement_date","stockID","value_change"))
-  colnames(tmpdat2_v) <- c("date","stockID","var")
-  tmpdat2_v$date <- QUtility::intdate2r(tmpdat2_v$date)
-  tmpdat2_v <- dplyr::arrange(tmpdat2_v, date, stockID)
-  tmpdat3_v <- etstack(tmpdat2_v, 20)
-
-  re1 <- subset(tmpdat3, ticks <= 10)
-  re2 <- subset(tmpdat3_v, tacks >= 1000)
-  re <- merge(re1, re2, by = c("date","stockID"))
-
-  re <- subset(re, select = c("date","stockID"))
-  return(re)
-}
-
-
-#' get ETS of leader buying stocks a lot within a few times.
-#'
-#' @return ETS object.
-ets.leaderbuy_largebuy <- function(){
-
-  con <- QDataGet::db.local()
-  tmpdat <- DBI::dbReadTable(con,'EE_LeaderStockAlter')
-  DBI::dbDisconnect(con)
-  tmpdat <- subsetCol(tmpdat, "shareholder_type", 3)
-  tmpdat <- subsetCol(tmpdat, "direction", 5)
-
-  tmpdat2 <- subset(tmpdat, select = c("announcement_date","stockID"))
-  colnames(tmpdat2) <- c("date","stockID")
-  tmpdat2$date <- QUtility::intdate2r(tmpdat2$date)
-  tmpdat2 <- dplyr::arrange(tmpdat2, date, stockID)
-  tmpdat3 <- etstick(tmpdat2, 20)
-
-  tmpdat2_v <- subset(tmpdat, select = c("announcement_date","stockID","change_proportion_floating"))
-  colnames(tmpdat2_v) <- c("date","stockID","var")
-  tmpdat2_v$date <- QUtility::intdate2r(tmpdat2_v$date)
-  tmpdat2_v <- dplyr::arrange(tmpdat2_v, date, stockID)
-  tmpdat3_v <- etstack(tmpdat2_v, 20)
-
-  re1 <- subset(tmpdat3, ticks <= 3)
-  re2 <- subset(tmpdat3_v, tacks > 0.125)
-  re <- merge(re1, re2, by = c("date","stockID"))
-  re <- subset(re, select = c("date","stockID"))
-  return(re)
-}
-
-
-#' ets.belowExpectation
-#'
-#' @return ETS object.
-ets.belowExpectation <- function(){
-
-  # RPTDATE SEQ
-  sq1 <- seq(2000, 2017)
-  sq2 <- c('0331','0630','0930','1231')
-  rptsq <- c()
-  for(i in sq1){
-    rptsq <- c(rptsq, paste0(i,sq2))
-  }
-  rptsq <- as.integer(rptsq)
-
-  # DATA SET 0, FORECAST
-  con <- db.local()
-  qr <- paste("select * from LC_ForecastAndReport")
-  tmpdat <- dbGetQuery(con,qr)
-  dbDisconnect(con)
-  ind <- !is.na(tmpdat$EGrowthRateFloor) & !is.na(tmpdat$EGrowthRateCeiling)
-  tmpdat0 <- tmpdat[ind,]
-
-  # DATA SET 1, LAST FORECAST
-  tmpdat1 <- subset(tmpdat0, select=c("stockID","enddate","date","EGrowthRateFloor","EGrowthRateCeiling"))
-  colnames(tmpdat1) <- c("stockID","enddate","date","L.EGrowthRateFloor","L.EGrowthRateCeiling")
-  tmpdat1 <- dplyr::arrange(tmpdat1, stockID, enddate, date)
-  tmpdat1 <- tmpdat1[!duplicated(tmpdat1,fromLast = T),]
-  tmpdat1 <- dplyr::select(tmpdat1, -date)
-  ind <- match(tmpdat1$enddate, rptsq)
-  ind <- ind + 1
-  tmpdat1$enddate <- rptsq[ind]
-
-  # merge
-  finalre <- merge(tmpdat0, tmpdat1, by = c("stockID","enddate"), all.x = T)
-  finalre <- dplyr::arrange(finalre, stockID, enddate)
-
-  # compute flags
-  # flag1
-  finalre$flag1 <- 0
-  ind1 <- finalre$EGrowthRateCeiling < finalre$L.EGrowthRateCeiling
-  ind1[is.na(ind1)] <- FALSE
-  ind2 <- finalre$EGrowthRateFloor < finalre$L.EGrowthRateFloor
-  ind2[is.na(ind2)] <- FALSE
-  finalre$flag1[ind1] <- finalre$flag1[ind1] + 1
-  finalre$flag1[ind2] <- finalre$flag1[ind2] + 1
-
-  finalrere <- subset(finalre, flag1 >= 2 & ForcastType == 4, select = c("date","stockID"))
-  finalrere <- na.omit(finalrere)
-  finalrere$date <- intdate2r(finalrere$date)
-  return(finalrere)
-}
-

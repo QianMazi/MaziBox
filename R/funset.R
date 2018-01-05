@@ -169,72 +169,6 @@ rptDate.forecastInfo <- function(rptTS){
 
 # ----- Internal using functions -----
 
-#' Fill in the NA.
-#'
-#' @param vec A vector.
-#' @param method The method to fill the NAs, could be median, mean, zero.
-#' @return A vector.
-#' @export
-fillna <- function(vec, method = "mean", trim = NA){
-  match.arg(method, c("mean","median","zero"))
-  if(method == "mean"){
-    if(is.na(trim)){
-      vec[is.na(vec)] = mean(vec, na.rm = TRUE)
-    }else{
-      vec[is.na(vec)] = mean(vec, na.rm = TRUE, trim = trim)
-    }
-  }else if( method == "median"){
-    vec[is.na(vec)] = median(vec, na.rm = TRUE)
-  }else if( method == "zero"){
-    vec[is.na(vec)] = 0
-  }
-  return(vec)
-}
-
-#' Transform daily TSF to montly TSF.
-#'
-#' @param ts The TS object.
-#' @param db The database containing the daily TSF data.
-#' @param window An interger indicating the time window to summarize. If NA, the time window will be the time interval between the rebalance dates.
-#' @return A TSF object.
-#' @export
-getmonthFac <- function(ts, db, window = NA){
-  QUtility::check.colnames(ts, c("date","stockID"))
-  if(is.na(window)){
-    v <- unique(ts$date)
-    stocklist <- unique(ts$stockID)
-    v0 <- QDataGet::trday.nearby(v[1], by = -20)
-    v <- c(v0, v)
-    ind <- findInterval(db$date, v, left.open = TRUE)
-    db2 <- cbind(db, ind)
-    db2 <- subset(db2, ind != 0)
-    db2 <- subset(db2, stockID %in% stocklist)
-    db2 <- dplyr::group_by(.data = db2, stockID, ind)
-    db2 <- dplyr::summarise(db2, newfac = sum(factorscore))
-    ind <- findInterval(ts$date, v, left.open = TRUE)
-    ts2 <- cbind(ts, ind)
-    re <- merge(ts2, db2, by = c("stockID","ind"), all.x = TRUE)
-    re2 <- data.frame("date" = re$date, "stockID" = as.character(re$stockID), "factorscore" = re$newfac)
-    return(re2)
-  }else{
-    stocklist <- unique(ts$stockID)
-    db <- subset(db, stockID %in% stocklist)
-    v1 <- unique(ts$date)
-    v2 <- QDataGet::trday.nearby(v1, by = -window)
-    ind1 <- findInterval(db$date, v1, left.open = TRUE)
-    ind2 <- findInterval(db$date, v2, left.open = FALSE)
-    db2 <- cbind(db, ind1, ind2)
-    db2 <- dplyr::group_by(db2, stockID, ind1)
-    db2 <- dplyr::filter(db2, ind2 >= ind1 + 1)
-    db2 <- dplyr::summarise(db2, newfac = sum(factorscore))
-    ind1 <- findInterval(ts$date, v1, left.open = TRUE)
-    ts2 <- cbind(ts, ind1)
-    re <- merge(ts2,db2, by = c("stockID","ind1"), all.x = TRUE)
-    re2 <- data.frame("date" = re$date, "stockID" = as.character(re$stockID), "factorscore" = re$newfac)
-    return(re2)
-  }
-}
-
 #' Get tradingday by passing in vector inputs.
 #'
 #' @param begTvec begT vector.
@@ -382,8 +316,6 @@ EE_getETSfromJY <- function(SheetName, key.df,
   }
   return(temp)
 }
-
-
 
 # ----- Event Effect Research -----
 
@@ -722,9 +654,10 @@ EE_wrap_analyzer <- function(ets, err_database = c("EE_CroxSecReg","EE_CroxSecGr
 #' @return Same result type with port.backtest
 #' @export
 #'
-ets.port_backtest <- function(ets, wgt_limit = 0.1, fee.buy=0, fee.sell=0){
+ets.port_backtest <- function(ets, wgt_limit = 0.1, output_type = c("port","rtn"),fee.buy=0, fee.sell=0){
 
   check.colnames(ets, c("date","stockID","date_end"))
+  output_type <- match.arg(output_type)
   # assuming in the first tradable date the pct_chg could not be obtained.
   # the pct_chg in the date_end is included, wgt changes in the next trday
 
@@ -765,6 +698,10 @@ ets.port_backtest <- function(ets, wgt_limit = 0.1, fee.buy=0, fee.sell=0){
   # compute wgt
   pt <- dplyr::group_by(pt, date)
   pt <- dplyr::mutate(pt, wgt = min(1/n(), wgt_limit))
+
+  if(output_type == "port"){
+    return(pt)
+  }
 
   # wide format
   pt_wide <- reshape2::dcast(data = pt, formula = date ~ stockID, value.var = 'wgt', fill = 0)
@@ -814,7 +751,9 @@ ets.port_backtest <- function(ets, wgt_limit = 0.1, fee.buy=0, fee.sell=0){
 
   # output
   attr(re,"fee") <- c(fee_buy=fee.buy, fee_sell=fee.sell)
-  return(re)
+
+  result <- list("port" = pt, "rtn" = re)
+  return(result)
 }
 
 
@@ -1546,111 +1485,6 @@ lcdb.update.EE_LeaderStockAlter <- function(){
   }
 }
 
-#' lcdb.build.EE_ForecastAndReport
-#'
-#' @export
-lcdb.build.EE_ForecastAndReport <- function(){
-  # RPTSQ
-  sq1 <- seq(2000,lubridate::year(Sys.Date())+1)
-  sq2 <- c('0331','0630','0930','1231')
-  rptsq <- c()
-  for(i in sq1){
-    rptsq <- c(rptsq, paste0(i,sq2))
-  }
-  rptsq <- as.integer(rptsq)
-
-  # step 0
-  TD_ <- rdate2int(Sys.Date())
-  CUT_ <- rptsq[rptsq >= TD_][1]
-  rptsq <- rptsq[rptsq <= CUT_]
-  fct0 <- data.frame("enddate" = rptsq)
-
-  # stocklist
-  con <- db.local()
-  stocklist <- RSQLite::dbGetQuery(con, "select * from SecuMain")
-  dbDisconnect(con)
-  stocklist <- subset(stocklist, SecuCategory == 1)
-  stocklist <- sort(unique(stocklist$ID))
-
-  # step 1
-  tsInclude()
-  tsConnect()
-  funchar = "infoarray(128)"
-  tmpfile <- stockID2stockID(stocklist,from="local",to="ts")
-  tmpcsv <- tempfile(fileext=".csv")
-  tmpcsv2 <- stringr::str_replace_all(tmpcsv,'\\\\',"\\\\\\\\")
-  write.csv(tmpfile,tmpcsv,row.names=FALSE,quote=FALSE)
-  qrstr <- paste0('oV:=BackUpSystemParameters();
-                  rdo2 importfile(ftcsv(),"","',tmpcsv2,'",stockframe);
-                  factorexp:=&"',funchar,'";
-                  result:=array();
-                  for i:=0 to length(stockframe)-1 do
-                  begin
-                  SetSysParam(pn_stock(),stockframe[i]["x"]);
-                  factorvalue:=eval(factorexp);
-                  result[i]:=factorvalue;
-                  end;
-                  RestoreSystemParameters(oV);
-                  return result;
-                  ')
-  fct1 <- tsRemoteExecute(qrstr)
-  for( i in 1:length(fct1)){
-    fct1[[i]] <- plyr::ldply(fct1[[i]], unlist)
-    if(nrow(fct1[[i]]) > 0){
-      fct1[[i]]$stockID <- stocklist[i]
-    }
-  }
-  fct1 <- data.table::rbindlist(fct1)
-  colnames(fct1) <- c("enddate",
-                      "FirstReservedDate","FirstChangeDate","SecondChangeDate",
-                      "ThirdChangeDate","ActualDate",
-                      "FirstReservePublDate","FirstChangePublDate","SecondChangePublDate",
-                      "ThirdChangePublDate","ActualPublDate",
-                      "stockID")
-  # step 2
-  qr <- paste("select t.*, 'EQ'+s.SecuCode stockID,
-              convert(varchar(8),t.InfoPublDate,112) date,
-              convert(varchar(8),t.EndDate,112) enddate
-              from dbo.LC_PerformanceForecast t,
-              dbo.SecuMain s
-              where t.CompanyCode = s.CompanyCode
-              and s.SecuCategory in (1,2)")
-  fct2 <- queryAndClose.odbc(db.jy(), qr)
-  fct2 <- dplyr::select(fct2, -ID, -InfoPublDate, -EndDate, -CompanyCode)
-  fct2 <- subset(fct2, substr(stockID,1,3) != "EQ9")
-  fct2 <- subset(fct2, substr(stockID,1,3) != "EQ8")
-  fct2 <- subset(fct2, substr(stockID,1,3) != "EQX")
-  # step 3
-  fct3 <- subset(fct2, select = c("stockID","date","enddate","ForcastType","EGrowthRateFloor","EGrowthRateCeiling"))
-  fct3 <- dplyr::arrange(fct3, enddate, stockID, desc(date))
-  fct3 <- fct3[!duplicated(fct3[,c("stockID","enddate")]),]
-  colnames(fct3) <- c("stockID","L.date","enddate","L.ForcastType","L.EGrowthRateFloor","L.EGrowthRateCeiling")
-  ind <- match(fct3$enddate, rptsq)
-  ind <- ind + 1
-  fct3$enddate <- rptsq[ind]
-  fct3 <- fct3[!is.na(fct3$enddate),]
-  # merging
-  res <- merge(fct0, fct1, by = c("enddate"), all = TRUE)
-  res <- merge(res, fct2, by = c("stockID","enddate"), all = TRUE)
-  res <- merge(res, fct3, by = c("stockID","enddate"), all = TRUE)
-  res <- res[!is.na(res$stockID),]
-  # organize
-  col1 <- c("stockID","enddate","date")
-  col2 <- setdiff(colnames(res), col1)
-  res <- res[,c(col1,col2)]
-  res <- dplyr::arrange(res, stockID, enddate, date)
-  # fixation
-  dupind <- (1:nrow(res))[duplicated(res[,c("stockID","enddate")])]
-  dupind2 <- dupind[res[dupind,c("date")] > res[dupind-1, c("date")]]
-  res[dupind2,c("L.date","L.ForcastType","L.EGrowthRateFloor","L.EGrowthRateCeiling")] = res[dupind2-1, c("date","ForcastType","EGrowthRateFloor","EGrowthRateCeiling")]
-  # output
-  con <- QDataGet::db.local()
-  RSQLite::dbWriteTable(con,'EE_ForecastAndReport',res,overwrite=T,append=F,row.names=F)
-  RSQLite::dbDisconnect(con)
-  return("Done!")
-}
-
-
 #' lcdb.build.EE_score
 #'
 #' @export
@@ -1745,7 +1579,7 @@ rpt.unfreeze_show <- function(ob_win=10){
 #' @param endT
 #' @return data frame
 #' @export
-rpt.dailyemotion <- function(begT, endT){
+rpt.dailyEmotion <- function(begT, endT){
   # pool
   datelist <- getRebDates(begT, endT, rebFreq = "day")
   stockpool <- getIndexComp("EI000985", endT = datelist) # vec
@@ -1811,6 +1645,38 @@ rpt.dailyemotion <- function(begT, endT){
     finalre <- rbind(finalre, finalre_)
   }
   return(finalre)
+}
+
+
+
+
+#' rpt.EQ002_show
+#'
+#' @export
+rpt.002_show <- function(begT=as.Date("2013-01-04"),
+                         endT=Sys.Date()-1,
+                         ob_win = 20, wgtmax = 0.05){
+  datelist <- getRebDates(begT,endT,rebFreq = "day")
+  ets <- ets.002()
+  ets <- dplyr::rename(ets, date_end = date)
+  ets$date <- trday.nearby(ets$date_end, by = -ob_win)
+
+  ets <- subset(ets, date_end > begT)
+  ets <- subset(ets, date < endT)
+
+  result_list <- ets.port_backtest(ets, wgt_limit = wgtmax, output_type = "rtn")
+  return(result_list)
+}
+
+#' rpt.st_show
+#'
+#' @export
+rpt.st_show <- function(){
+  ets <- ets.st()
+  ets <- dplyr::rename(ets, date_end = rsvDate)
+  ets <- ets[,c("date","stockID","date_end")]
+  result_list <- ets.port_backtest(ets, wgt_limit = 0.05, output_type = "rtn")
+  return(result_list)
 }
 
 #' RSRS timing
@@ -1891,34 +1757,4 @@ rsrs_timing <- function(indexID = "EI000300",
   rtn <- xts::as.xts(x = finalre$rtn, order.by = finalre$date)
   relist <- list("finalre" = finalre, "rtn" = rtn)
   return(relist)
-}
-
-
-#' rpt.EQ002_show
-#'
-#' @export
-rpt.002_show <- function(begT=as.Date("2013-01-04"),
-                         endT=Sys.Date()-1,
-                         ob_win = 20, wgtmax = 0.05){
-  datelist <- getRebDates(begT,endT,rebFreq = "day")
-  ets <- ets.002()
-  ets <- dplyr::rename(ets, date_end = date)
-  ets$date <- trday.nearby(ets$date_end, by = -ob_win)
-
-  ets <- subset(ets, date_end > begT)
-  ets <- subset(ets, date < endT)
-
-  result_list <- ets.port_backtest(ets, wgt_limit = wgtmax)
-  return(result_list)
-}
-
-#' rpt.st_show
-#'
-#' @export
-rpt.st_show <- function(){
-  ets <- ets.st()
-  ets <- dplyr::rename(ets, date_end = rsvDate)
-  ets <- ets[,c("date","stockID","date_end")]
-  result_list <- ets.port_backtest(ets, wgt_limit = 0.05)
-  return(result_list)
 }

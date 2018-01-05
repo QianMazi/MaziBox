@@ -4,7 +4,8 @@
 \alias{ets.port_backtest}
 \title{back test function for ets}
 \usage{
-ets.port_backtest(ets, wgt_limit = 0.1, fee.buy = 0, fee.sell = 0)
+ets.port_backtest(ets, wgt_limit = 0.1, output_type = c("port", "rtn"),
+  fee.buy = 0, fee.sell = 0)
 }
 \arguments{
 \item{ets}{the ets object must contain the columns date, stockID and date_end.}

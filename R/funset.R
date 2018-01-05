@@ -654,7 +654,7 @@ EE_wrap_analyzer <- function(ets, err_database = c("EE_CroxSecReg","EE_CroxSecGr
 #' @return Same result type with port.backtest
 #' @export
 #'
-ets.port_backtest <- function(ets, wgt_limit = 0.1, output_type = c("port","rtn"),fee.buy=0, fee.sell=0){
+EE.port_backtest <- function(ets, wgt_limit = 0.1, output_type = c("port","rtn"),fee.buy=0, fee.sell=0){
 
   check.colnames(ets, c("date","stockID","date_end"))
   output_type <- match.arg(output_type)
@@ -1154,10 +1154,7 @@ lcdb.build.EE_CroxSecReg <- function(begT,endT,factorLists){
     endT <- Sys.Date()-1
   }
   if(missing(factorLists)){
-    factorLists = buildFactorLists(
-      buildFactorList(factorFun = "gf.ln_mkt_cap",
-                      factorRefine = setrefinePar(refinePar = refinePar_default("old_robust", sectorAttr = NULL), outlier_method = "none"))
-    )
+    factorLists <- list(fl_cap(log = FALSE, bc_lambda = "auto", var = "mkt_cap"))
   }
   RebDates <- getRebDates(begT,endT,rebFreq = "day")
   RebDates <- as.data.frame(RebDates)
@@ -1196,54 +1193,6 @@ lcdb.build.EE_CroxSecReg <- function(begT,endT,factorLists){
   }
   return("Done!")
 }
-
-#' lcdb.build.EE_CroxSecGroup
-#'
-#' @export
-lcdb.build.EE_CroxSecGroup <- function(begT,endT){
-  if(missing(begT)){
-    begT <- as.Date("2005-01-04")
-  }
-  if(missing(endT)){
-    endT <- Sys.Date()-1
-  }
-  RebDates <- getRebDates(begT,endT,rebFreq = "day")
-  RebDates <- as.data.frame(RebDates)
-  RebDates$year <- lubridate::year(RebDates$RebDates)
-  yearlist <- unique(RebDates$year)
-  # loop starts
-  for(i in 1:length(yearlist)){
-    year_ <- yearlist[i]
-    cat(year_,'\n')
-    RebDates_ <- subset(RebDates, year == year_)
-    RebDates_ <- trday.nearby(RebDates_$RebDates, -1)
-    TS_ <- getTS(RebDates_, indexID = "EI000985")
-    TSR_ <- getTSR(TS_, dure = lubridate::days(1))
-    # get TSFR_
-    TSRS_ <- getSectorID(TSR_, drop = FALSE, fillNA = TRUE, sectorAttr = defaultSectorAttr(type = "ind_fct"))
-    TSRS_ <- TSSregroup(TSRS_)
-    TSRS_ <- dplyr::group_by(TSRS_, date, sector)
-    TSRS_ <- dplyr::mutate(TSRS_, periodrtn = periodrtn - mean(periodrtn, na.rm = TRUE))
-    #
-    result <- as.data.frame(TSRS_[,c("date","stockID","periodrtn")])
-    result$date <- trday.nearby(result$date, by = 1)
-    result$date <- rdate2int(result$date)
-    result <- renameCol(result, "periodrtn", "err")
-
-    # write into database
-    con <- db.local()
-    if(i == 1){
-      RSQLite::dbWriteTable(con,'EE_CroxSecGroup',result,overwrite=T,append=F,row.names=F)
-    }else{
-      RSQLite::dbWriteTable(con,'EE_CroxSecGroup',result,overwrite=F,append=T,row.names=F)
-    }
-    RSQLite::dbDisconnect(con)
-    gc()
-    result <- NULL
-  }
-  return("Done!")
-}
-
 
 #' lcdb.update.EE_CroxSecReg
 #'
@@ -1285,10 +1234,7 @@ lcdb.update.EE_CroxSecReg <- function(begT, endT, factorLists){
     return("It's already up-to-date.")
   }else{
     if(missing(factorLists)){
-      factorLists = buildFactorLists(
-        buildFactorList(factorFun = "gf.ln_mkt_cap",
-                        factorRefine = setrefinePar(refinePar = refinePar_default("old_robust", sectorAttr = NULL), outlier_method = "none"))
-      )
+      factorLists <- list(fl_cap(bc_lambda = "auto"))
     }
     # begT <- trday.nearby(begT, by = 1)
     # RebDates <- getRebDates(begT, endT, rebFreq = "day")
@@ -1312,6 +1258,53 @@ lcdb.update.EE_CroxSecReg <- function(begT, endT, factorLists){
     RSQLite::dbDisconnect(con)
     return("Done!")
   }
+}
+
+
+#' lcdb.build.EE_CroxSecGroup
+#'
+#' @export
+lcdb.build.EE_CroxSecGroup <- function(begT,endT){
+  if(missing(begT)){
+    begT <- as.Date("2005-01-04")
+  }
+  if(missing(endT)){
+    endT <- Sys.Date()-1
+  }
+  RebDates <- getRebDates(begT,endT,rebFreq = "day")
+  RebDates <- as.data.frame(RebDates)
+  RebDates$year <- lubridate::year(RebDates$RebDates)
+  yearlist <- unique(RebDates$year)
+  # loop starts
+  for(i in 1:length(yearlist)){
+    year_ <- yearlist[i]
+    cat(year_,'\n')
+    RebDates_ <- subset(RebDates, year == year_)
+    RebDates_ <- trday.nearby(RebDates_$RebDates, -1)
+    TS_ <- getTS(RebDates_, indexID = "EI000985")
+    TSR_ <- getTSR(TS_, dure = lubridate::days(1))
+    # get TSFR_
+    TSRS_ <- getSectorID(TSR_, drop = FALSE, fillNA = TRUE, sectorAttr = defaultSectorAttr(type = "ind_fct"), ungroup = 10)
+    TSRS_ <- dplyr::group_by(TSRS_, date, sector)
+    TSRS_ <- dplyr::mutate(TSRS_, periodrtn = periodrtn - mean(periodrtn, na.rm = TRUE))
+    #
+    result <- as.data.frame(TSRS_[,c("date","stockID","periodrtn")])
+    result$date <- trday.nearby(result$date, by = 1)
+    result$date <- rdate2int(result$date)
+    result <- renameCol(result, "periodrtn", "err")
+
+    # write into database
+    con <- db.local()
+    if(i == 1){
+      RSQLite::dbWriteTable(con,'EE_CroxSecGroup',result,overwrite=T,append=F,row.names=F)
+    }else{
+      RSQLite::dbWriteTable(con,'EE_CroxSecGroup',result,overwrite=F,append=T,row.names=F)
+    }
+    RSQLite::dbDisconnect(con)
+    gc()
+    result <- NULL
+  }
+  return("Done!")
 }
 
 #' lcdb.update.EE_CroxSecGroup
@@ -1360,8 +1353,7 @@ lcdb.update.EE_CroxSecGroup <- function(){
     TSR <- getTSR(TS, dure = lubridate::days(1))
 
     # get TSFR_
-    TSRS <- getSectorID(TSR, drop = FALSE, fillNA = TRUE, sectorAttr = defaultSectorAttr(type = "ind_fct"))
-    TSRS <- TSSregroup(TSRS)
+    TSRS <- getSectorID(TSR, drop = FALSE, fillNA = TRUE, sectorAttr = defaultSectorAttr(type = "ind_fct"), ungroup = 10)
     TSRS <- dplyr::group_by(TSRS, date, sector)
     TSRS <- dplyr::mutate(TSRS, periodrtn = periodrtn - mean(periodrtn, na.rm = TRUE))
     #
@@ -1664,7 +1656,7 @@ rpt.002_show <- function(begT=as.Date("2013-01-04"),
   ets <- subset(ets, date_end > begT)
   ets <- subset(ets, date < endT)
 
-  result_list <- ets.port_backtest(ets, wgt_limit = wgtmax, output_type = "rtn")
+  result_list <- EE.port_backtest(ets, wgt_limit = wgtmax, output_type = "rtn")
   return(result_list)
 }
 
@@ -1675,7 +1667,7 @@ rpt.st_show <- function(){
   ets <- ets.st()
   ets <- dplyr::rename(ets, date_end = rsvDate)
   ets <- ets[,c("date","stockID","date_end")]
-  result_list <- ets.port_backtest(ets, wgt_limit = 0.05, output_type = "rtn")
+  result_list <- EE.port_backtest(ets, wgt_limit = 0.05, output_type = "rtn")
   return(result_list)
 }
 

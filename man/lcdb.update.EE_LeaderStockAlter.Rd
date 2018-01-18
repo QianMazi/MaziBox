@@ -10,6 +10,5 @@ lcdb.update.EE_LeaderStockAlter()
 lcdb.update.EE_LeaderStockAlter
 }
 \examples{
-library(WindR)
 lcdb.update.EE_LeaderStockAlter()
 }

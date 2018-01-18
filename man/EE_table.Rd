@@ -4,12 +4,14 @@
 \alias{EE_table}
 \title{Plug in TSErr object and return the mean summary table}
 \usage{
-EE_table(TSErr, withSTD = TRUE, withACC = FALSE)
+EE_table(TSErr, withSD = TRUE, withACC = FALSE)
 }
 \arguments{
 \item{TSErr}{The TSErr object}
 
-\item{withSTD}{Logical. Whether to include STD in the return.}
+\item{withSD}{Logical. Whether to compute sd.}
+
+\item{withACC}{Logical. Whether to compute accumulated err.}
 }
 \value{
 Dataframe.

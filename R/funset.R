@@ -1889,7 +1889,7 @@ rpt.dailyemotion <- function(begT, endT){
     qr0 <- paste0(qr0,TD_0_ts,",")
     qr1 <- c("StockIsZt(","StockIsZt2(","StockIsDt(","StockIsDt2(","StockHigh4(","StockLow4(",qr0)
     qr2 <- paste0(qr1,TD_ts,")")
-    qr2 <- c(qr2,"IsDtpl(5,30,60,120)","IsKtpl(5,30,60,120)")
+    qr2 <- c(qr2,"IsDtpl(5,10,20,250)","IsKtpl(5,10,20,250)")
     stockpool_ <- TS.getTech_ts(stockpool_, funchar = qr2, varname = c("zt","yzzt","dt","yzdt","high","low","sixtyhigh","sixtylow","dtpl","ktpl"))
 
     re <- stockpool_

@@ -12,4 +12,3 @@ ETS object.
 \description{
 get ETS of 002 stocks
 }
-

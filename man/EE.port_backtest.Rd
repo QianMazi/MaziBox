@@ -18,4 +18,3 @@ Same result type with port.backtest
 \description{
 the function is modified by port.backtest. This revised version could provide different date_end for each stock. The weight is set to eq for each trday. The date in ets is the buying date and the pct_chg in that date is not obtained. The date_end is the selling date and the pct_chg is included.
 }
-

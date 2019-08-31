@@ -22,4 +22,3 @@ build key for key data frame
 \details{
 Rbind the keys to one single data frame and apply it in the the EE_getETSfromJY function.
 }
-

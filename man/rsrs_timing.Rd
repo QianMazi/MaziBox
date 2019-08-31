@@ -20,4 +20,3 @@ A list, containing rtn and finalre.
 \description{
 RSRS timing
 }
-

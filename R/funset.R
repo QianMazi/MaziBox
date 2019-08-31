@@ -1520,7 +1520,7 @@ lcdb.build.EE_pool <- function(){
 
 # ----- Daily Report Part -----
 
-#' rpt.unfroz_show
+#' rpt.unfreeze_show
 #'
 #' @export
 rpt.unfreeze_show <- function(ob_win=10){
@@ -1552,6 +1552,7 @@ rpt.unfreeze_show <- function(ob_win=10){
   }
   # adjust rtn_data begT back
   rtn_data$begT <- trday.nearby(rtn_data$begT, 1L)
+
 
   # merge
   result <- merge(ets0, rtn_data, by = c("stockID","begT","endT"))

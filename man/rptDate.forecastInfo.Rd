@@ -12,4 +12,3 @@ data frame
 \description{
 get forecast report info according to rptTS
 }
-

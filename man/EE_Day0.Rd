@@ -19,4 +19,3 @@ conduct day 0 statistics analysis
 ets <- ets.employeeplan()
 EE_day0(ets)
 }
-

@@ -19,4 +19,3 @@ Dataframe.
 \description{
 Plug in TSErr object and return the mean summary table
 }
-

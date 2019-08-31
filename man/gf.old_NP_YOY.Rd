@@ -10,4 +10,3 @@ gf.old_NP_YOY(TS, is1q = TRUE, filt = 1e+07, rm_neg = FALSE,
 \description{
 get old NP YOY
 }
-

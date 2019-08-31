@@ -9,4 +9,3 @@ lcdb.build.EE_CroxSecGroup(begT, endT)
 \description{
 lcdb.build.EE_CroxSecGroup
 }
-

@@ -9,4 +9,3 @@ rptDate.rsvDate(rptTS)
 \description{
 get reserved publ date according to rptDate
 }
-

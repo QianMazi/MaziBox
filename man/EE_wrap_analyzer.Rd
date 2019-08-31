@@ -24,4 +24,3 @@ Wrap up ETS analyzing functions
 ets <- ets.employeeplan()
 EE_wrap_analyzer(ets)
 }
-

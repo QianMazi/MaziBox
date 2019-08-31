@@ -12,4 +12,3 @@ lcdb.build.EE_LeaderStockAlter
 \examples{
 lcdb.build.EE_LeaderStockAlter()
 }
-

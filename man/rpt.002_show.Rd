@@ -10,4 +10,3 @@ rpt.002_show(begT = as.Date("2013-01-04"), endT = Sys.Date() - 1,
 \description{
 rpt.EQ002_show
 }
-

@@ -19,4 +19,3 @@ EETS(Expanded event TS).
 \description{
 Basic function in the event research system. In ETS, the date in ETS represent the first tradable date after the info released date. In EETS, the No 0 represent the first tradable date after the info released.
 }
-

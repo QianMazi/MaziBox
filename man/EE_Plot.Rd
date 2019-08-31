@@ -22,4 +22,3 @@ ETS <- data.frame(date, stockID)
 TSErr <- EE_getTSErr(ETS)
 EE_plot(TSErr)
 }
-

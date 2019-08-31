@@ -2,11 +2,10 @@
 % Please edit documentation in R/funset.R
 \name{rpt.unfreeze_show}
 \alias{rpt.unfreeze_show}
-\title{rpt.unfroz_show}
+\title{rpt.unfreeze_show}
 \usage{
 rpt.unfreeze_show(ob_win = 10)
 }
 \description{
-rpt.unfroz_show
+rpt.unfreeze_show
 }
-

@@ -15,4 +15,3 @@ plot.
 \description{
 Split plot by sector
 }
-
